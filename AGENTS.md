@@ -7,10 +7,16 @@ This repository is shared across multiple contributors and agentic workflows. To
 ---
 
 ## Project Overview
-> *Note: Project specifics, scope, and technical specifications are currently being finalized. Update this section once confirmed.*
 
-* **Status:** Inception / Planning Phase
-* **System Architecture:** See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) *(Template in place)*
+A polyglot, performance-tiered, cloud-native agentic trading platform:
+* **Frontend:** TypeScript + React (structural type safety, concurrent UI for market visuals & AI reasoning streams).
+* **Intelligence Tier ("Brain"):** Python with Gemini SDK / ADK, Model Context Protocol (MCP) servers, and financial API integrations (SEC.gov, SEC EDGAR, Finnhub, Alpaca).
+* **Compute & Execution Tier ("Muscle"):** Rust for quantitative backtesting, numerical math, live execution, WebSocket feeds, and deterministic risk checks.
+* **Hybrid Interop:** In-process PyO3 + Maturin bindings for on-demand math/backtests; out-of-process Rust daemon over gRPC for live streaming and execution.
+* **System of Record:** PostgreSQL (Cloud SQL) for ACID transactional state, ledgers, audit logs, and vector embeddings; Cloud Storage for raw Parquet market data.
+* **Cloud Fabric:** Google Cloud Platform (Cloud Run, Cloud Run Jobs, Cloud SQL, Cloud Storage, Secret Manager).
+* **Architecture Reference:** Detailed in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+* **Architectural Decisions:** Documented in [docs/decisions/0001-polyglot-trading-platform-architecture.md](docs/decisions/0001-polyglot-trading-platform-architecture.md).
 
 ---
 
@@ -21,7 +27,7 @@ Every agent working on this repository must adhere to the following 3-step lifec
 ```
 [Start Session] ──> Check AGENTS.md & Latest Notes
        │
-[Execute Work]  ──> Keep changes scoped & tested
+[Execute Work]  ──> Keep changes scoped & tested (NO UNREQUESTED CODE IMPLEMENTATION)
        │
 [End Session]   ──> Create a Note in docs/notes/ & Update AGENTS.md
 ```
@@ -46,9 +52,13 @@ Before closing your turn or concluding a task:
 
 Use this checklist for handoffs between agents. Keep it up to date.
 
-* [ ] Finalize project scope and high-level architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-* [ ] Define tech stack, dependencies, and environment setup
-* [ ] Initialize repository structure and configuration
+* [x] Finalize project scope and high-level architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/decisions/0001-polyglot-trading-platform-architecture.md](docs/decisions/0001-polyglot-trading-platform-architecture.md)
+* [x] Implement SEC EDGAR search and in-memory vector RAG agent in [python-brain/](python-brain/)
+* [ ] Initialize workspace directory structure (frontend, rust-muscle, proto)
+* [ ] Set up protobuf/gRPC definitions for agent-to-daemon communication
+* [ ] Configure PyO3/maturin skeleton for Python-Rust in-process bindings
+* [ ] Define PostgreSQL schema migrations for accounts, ledgers, and audit logs
+* [ ] Set up GCP configuration, Dockerfiles, and CI/CD pipelines (Cloud Build)
 
 ---
 
@@ -58,13 +68,16 @@ Keep a reverse-chronological list of session notes here. Whenever you create a n
 
 | Date | Topic / Session | Note Link | Contributors / Agent |
 | :--- | :--- | :--- | :--- |
+| 2026-11-08 | Section Targeting & Batch Embedding Optimization | [docs/notes/2026-11-08-section-targeting-and-batch-embedding.md](docs/notes/2026-11-08-section-targeting-and-batch-embedding.md) | Antigravity |
+| 2026-11-07 | SEC Search & RAG Agent Implementation | [docs/notes/2026-11-07-sec-agent-rag-implementation.md](docs/notes/2026-11-07-sec-agent-rag-implementation.md) | Antigravity |
+| 2026-11-07 | Polyglot Architecture & Specifications Documentation | [docs/notes/2026-11-07-architecture-documentation-update.md](docs/notes/2026-11-07-architecture-documentation-update.md) | Antigravity |
 | 2026-11-07 | Agent Notes & Collaboration Framework Setup | [docs/notes/2026-11-07-agent-framework-setup.md](docs/notes/2026-11-07-agent-framework-setup.md) | Antigravity |
 
 ---
 
 ## Repository Documentation Index
 
+* **[README.md](README.md)**: Public facing project overview and architecture summary.
 * **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**: System design, data flow, tech stack, and conventions.
 * **[docs/notes/](docs/notes/)**: Session-by-session work logs and handoff notes.
 * **[docs/decisions/](docs/decisions/)**: Architecture Decision Records (ADRs).
-* **[README.md](README.md)**: Public facing overview.
