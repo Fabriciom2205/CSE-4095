@@ -58,6 +58,8 @@ Use this checklist for handoffs between agents. Keep it up to date.
 * [x] Implement Model Context Protocol (MCP) server for SEC EDGAR tools in [python-brain/mcp_server.py](python-brain/mcp_server.py)
 * [x] Complete codebase audit and refactoring (deduplicate RAG, fix search schema, connection pooling, bounded cache)
 * [x] Add python-brain environment & health check script in [python-brain/init.py](python-brain/init.py)
+* [x] Add end-to-end MCP server tests (tools, resource, prompt, stdio + streamable-http) in [python-brain/test_mcp_server.py](python-brain/test_mcp_server.py)
+* [ ] Fix MCP issues found in testing: generic tool error messages, ignored `start_date` in full-text search, oversized `sec_fetch_filing_text` output (see [docs/notes/2026-11-09-mcp-server-testing.md](docs/notes/2026-11-09-mcp-server-testing.md))
 * [ ] Make `test_cache_eviction_bounded` and `test_archive_url_construction` call the real `filing_rag` / `sec_client` code
 * [ ] Initialize workspace directory structure (frontend, rust-muscle, proto)
 * [ ] Set up protobuf/gRPC definitions for agent-to-daemon communication
@@ -73,6 +75,7 @@ Keep a reverse-chronological list of session notes here. Whenever you create a n
 
 | Date | Topic / Session | Note Link | Contributors / Agent |
 | :--- | :--- | :--- | :--- |
+| 2026-11-09 | SEC EDGAR MCP Server Testing | [docs/notes/2026-11-09-mcp-server-testing.md](docs/notes/2026-11-09-mcp-server-testing.md) | Fabricio |
 | 2026-11-09 | Python Brain Health Check (init.py) | [docs/notes/2026-11-09-python-brain-health-check.md](docs/notes/2026-11-09-python-brain-health-check.md) | Fabricio |
 | 2026-11-09 | Codebase Audit & Refactoring | [docs/notes/2026-11-09-codebase-audit-and-refactor.md](docs/notes/2026-11-09-codebase-audit-and-refactor.md) | Antigravity |
 | 2026-11-09 | SEC EDGAR MCP Server Implementation | [docs/notes/2026-11-09-mcp-server-implementation.md](docs/notes/2026-11-09-mcp-server-implementation.md) | Antigravity |
