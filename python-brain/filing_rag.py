@@ -4,8 +4,17 @@ import numpy as np
 from bs4 import BeautifulSoup
 from google import genai
 
+import sec_client
+
+try:
+    from dotenv import load_dotenv, find_dotenv
+    load_dotenv(find_dotenv())
+except ImportError:
+    pass
+
 DEFAULT_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-2")
 FALLBACK_EMBEDDING_MODEL = "text-embedding-004"
+MAX_CACHED_FILINGS = 20
 
 # In-memory store: {filing_key: {"chunks": list[str], "embeddings": np.ndarray}}
 _filing_indices = {}
@@ -156,6 +165,10 @@ def index_filing(
     if key in _filing_indices or not chunks:
         return
 
+    # FIFO cache eviction when exceeding maximum capacity
+    if len(_filing_indices) >= MAX_CACHED_FILINGS:
+        _filing_indices.pop(next(iter(_filing_indices)))
+
     embeddings = get_batch_embeddings(client, chunks, model=model, batch_size=100)
     _filing_indices[key] = {
         "chunks": chunks,
@@ -183,3 +196,29 @@ def query_filing_index(
 
     top_indices = np.argsort(scores)[::-1][:top_k]
     return [{"chunk": chunks[i], "score": float(scores[i])} for i in top_indices]
+
+
+def query_filing_rag(
+    cik: str,
+    accession_number: str,
+    filename: str,
+    question: str,
+    client: genai.Client,
+    section: str = "key_sections",
+    top_k: int = 4,
+) -> str:
+    """Indexes targeted filing sections and runs vector similarity search with Gemini embeddings."""
+    cache_key = f"{cik}_{accession_number}_{filename}_{section}"
+    if cache_key not in _filing_indices:
+        raw_html = sec_client.tool_fetch_filing_text(cik=cik, accession_number=accession_number, filename=filename)
+        chunks = clean_and_chunk_html(raw_html, section=section)
+        if not chunks:
+            return "No matching content found in target filing section."
+        index_filing(cache_key, chunks, client=client)
+
+    results = query_filing_index(cache_key, query=question, client=client, top_k=top_k)
+    if not results:
+        return "No matching sections found in filing."
+
+    output = [f"[Excerpt {i} | Similarity: {res['score']:.3f}]\n{res['chunk']}\n" for i, res in enumerate(results, start=1)]
+    return "\n".join(output)

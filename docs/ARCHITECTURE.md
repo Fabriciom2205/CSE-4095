@@ -1,12 +1,12 @@
-# System Architecture & Technical Specifications
+# The Monroe Fund — System Architecture & Technical Specifications
 
-This document defines the architectural blueprints, technology selections, data boundaries, and operational invariants for the polyglot, performance-tiered, cloud-native agentic trading platform.
+This document defines the architectural blueprints, technology selections, data boundaries, and operational invariants for **The Monroe Fund**, a polyglot, performance-tiered, cloud-native agentic trading platform.
 
 ---
 
 ## 1. High-Level Overview & Core Philosophy
 
-The platform decouples autonomous reasoning from real-time execution:
+The Monroe Fund decouples autonomous reasoning from real-time execution:
 * **The Brain (Cognitive / Orchestration Layer):** Flexible, dynamic, ecosystem-rich Python services responsible for LLM workflows, financial data ingestion, Model Context Protocol (MCP) tool hosting, and trade thesis generation.
 * **The Muscle (Execution & Compute Layer):** Memory-safe, zero-cost abstraction, low-latency Rust services responsible for backtesting, numerical math, deterministic risk validation, WebSocket stream ingestion, and broker execution.
 * **The System of Record:** PostgreSQL as the single source of truth for transactional state, ledgers, audit logs, and vector storage.

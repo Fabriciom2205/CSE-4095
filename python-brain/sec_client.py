@@ -1,14 +1,22 @@
 import os
 import re
 import time
+from urllib.parse import urlparse, quote
 import requests
 
+try:
+    from dotenv import load_dotenv, find_dotenv
+    load_dotenv(find_dotenv())
+except ImportError:
+    pass
+
 # SEC strictly requires User-Agent in format: Sample Company Name AdminContact@<domain>.com
-DEFAULT_USER_AGENT = os.getenv("SEC_USER_AGENT", "TradingPlatformResearch admin@tradingplatform.local")
+DEFAULT_USER_AGENT = os.getenv("SEC_USER_AGENT", "TheMonroeFund research@themonroefund.com")
 SEC_RATE_LIMIT_DELAY = 0.11  # At least 110ms between calls to enforce <= 10 req/sec
 
 _last_request_time = 0.0
 _cik_cache = {}
+_session = requests.Session()
 
 
 def _rate_limited_get(url: str, params: dict = None) -> requests.Response:
@@ -17,7 +25,7 @@ def _rate_limited_get(url: str, params: dict = None) -> requests.Response:
     headers = {
         "User-Agent": DEFAULT_USER_AGENT,
         "Accept-Encoding": "gzip, deflate",
-        "Host": requests.compat.urlparse(url).netloc,
+        "Host": urlparse(url).netloc,
     }
 
     retries = 3
@@ -29,7 +37,7 @@ def _rate_limited_get(url: str, params: dict = None) -> requests.Response:
             time.sleep(SEC_RATE_LIMIT_DELAY - elapsed)
         _last_request_time = time.time()
 
-        resp = requests.get(url, headers=headers, params=params, timeout=15)
+        resp = _session.get(url, headers=headers, params=params, timeout=15)
         if resp.status_code == 429:
             time.sleep(backoff)
             backoff *= 2
@@ -69,7 +77,7 @@ def tool_cik_lookup(company_name_or_ticker: str) -> str:
 
 def tool_full_text_search(query: str, form_type: str = "10-K", start_date: str = "") -> list:
     """Queries efts.sec.gov to locate filing documents matching keywords and form types."""
-    url = f"https://efts.sec.gov/LATEST/search-index?q={requests.compat.quote(query)}"
+    url = f"https://efts.sec.gov/LATEST/search-index?q={quote(query)}"
     params = {}
     if form_type:
         params["forms"] = form_type
@@ -83,13 +91,20 @@ def tool_full_text_search(query: str, form_type: str = "10-K", start_date: str =
     results = []
     for hit in hits[:10]:
         src = hit.get("_source", {})
+        ciks = src.get("ciks", [])
+        cik = str(ciks[0]).zfill(10) if ciks else ""
+        hit_id = hit.get("_id", "")
+        file_name = hit_id.split(":", 1)[1] if ":" in hit_id else src.get("file_name", "")
+        root_forms = src.get("root_forms", [])
+        root_form = root_forms[0] if root_forms else src.get("root_form", "")
+
         results.append({
-            "cik": str(src.get("ciks", [""]))[2:-2].zfill(10),
+            "cik": cik,
             "adsh": src.get("adsh", ""),
-            "form": src.get("form_type", ""),
+            "form": src.get("form", ""),
             "file_date": src.get("file_date", ""),
-            "file_name": src.get("file_name", ""),
-            "root_form": src.get("root_form", ""),
+            "file_name": file_name,
+            "root_form": root_form,
             "snippet": re.sub(r"<[^>]+>", "", hit.get("highlight", {}).get("text", [""])[0]) if hit.get("highlight") else ""
         })
     return results

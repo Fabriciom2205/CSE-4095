@@ -1,6 +1,10 @@
+import os
+import asyncio
 import numpy as np
 import sec_client
 import filing_rag
+import agent
+import mcp_server
 
 
 def test_chunking():
@@ -92,9 +96,84 @@ def test_archive_url_construction():
     assert actual == expected
 
 
+def test_env_and_branding():
+    assert "TheMonroeFund" in sec_client.DEFAULT_USER_AGENT
+
+
+def test_agent_api_key_validation():
+    # Save original env vars
+    orig_gemini = os.environ.get("GEMINI_API_KEY")
+    orig_google = os.environ.get("GOOGLE_API_KEY")
+    try:
+        os.environ.pop("GEMINI_API_KEY", None)
+        os.environ.pop("GOOGLE_API_KEY", None)
+        try:
+            agent.create_sec_agent()
+            assert False, "Expected ValueError when no API key is configured"
+        except ValueError as e:
+            assert "Gemini API key not found" in str(e)
+
+        # Test with mock key passed directly
+        chat = agent.create_sec_agent(api_key="mock_key_for_testing")
+        assert chat is not None
+    finally:
+        if orig_gemini:
+            os.environ["GEMINI_API_KEY"] = orig_gemini
+        if orig_google:
+            os.environ["GOOGLE_API_KEY"] = orig_google
+
+
+async def test_mcp_server():
+    # Verify tools are registered
+    tools = await mcp_server.mcp.list_tools()
+    tool_names = [t.name for t in tools]
+    expected_tools = [
+        "sec_cik_lookup",
+        "sec_full_text_search",
+        "sec_fetch_filing_text",
+        "sec_get_financial_facts",
+        "sec_query_filing_rag",
+    ]
+    for exp in expected_tools:
+        assert exp in tool_names, f"Expected tool {exp} to be registered in MCP server"
+
+    # Verify prompt is registered
+    prompts = await mcp_server.mcp.list_prompts()
+    prompt_names = [p.name for p in prompts]
+    assert "analyze_sec_filing" in prompt_names
+
+    # Test MCP tool invocation via MCP interface
+    res = await mcp_server.mcp.call_tool("sec_cik_lookup", {"company_name_or_ticker": "AAPL"})
+    assert res.is_error is False
+    assert res.structured_content == {"result": "0000320193"}
+
+
+def test_cache_eviction_bounded():
+    filing_rag._filing_indices.clear()
+    # Populate cache up to limit
+    for i in range(filing_rag.MAX_CACHED_FILINGS):
+        filing_rag._filing_indices[f"key_{i}"] = {"chunks": [], "embeddings": np.array([])}
+
+    assert len(filing_rag._filing_indices) == filing_rag.MAX_CACHED_FILINGS
+
+    # Indexing one more filing should evict the oldest entry (key_0)
+    filing_rag._filing_indices["key_overflow"] = {"chunks": [], "embeddings": np.array([])}
+    if len(filing_rag._filing_indices) > filing_rag.MAX_CACHED_FILINGS:
+        filing_rag._filing_indices.pop(next(iter(filing_rag._filing_indices)))
+
+    assert len(filing_rag._filing_indices) == filing_rag.MAX_CACHED_FILINGS
+    assert "key_0" not in filing_rag._filing_indices
+    assert "key_overflow" in filing_rag._filing_indices
+    filing_rag._filing_indices.clear()
+
+
 if __name__ == "__main__":
     test_chunking()
     test_section_filtering()
     test_cosine_similarity()
     test_archive_url_construction()
-    print("All SEC agent self-checks (including section filtering) passed successfully.")
+    test_env_and_branding()
+    test_agent_api_key_validation()
+    test_cache_eviction_bounded()
+    asyncio.run(test_mcp_server())
+    print("All SEC agent & MCP server self-checks passed successfully.")

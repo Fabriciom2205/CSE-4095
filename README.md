@@ -1,6 +1,6 @@
-# Agentic Trading Platform
+# The Monroe Fund
 
-A polyglot, performance-tiered, cloud-native agentic trading platform designed for high-frequency financial data processing, autonomous multi-agent reasoning, deterministic execution, and robust backtesting.
+The Monroe Fund is a polyglot, performance-tiered, cloud-native agentic trading platform designed for high-frequency financial data processing, autonomous multi-agent reasoning, deterministic execution, and robust backtesting.
 
 ---
 
@@ -61,6 +61,23 @@ graph TD
 The execution layer uses a dual-interface model to maximize performance and ergonomics:
 1. **In-Process Compute (PyO3 + Maturin):** Heavy mathematical algorithms, backtesting engines, and quantitative simulations compile directly to native Python extensions, eliminating IPC overhead while bypassing the Python GIL.
 2. **Out-of-Process Execution Daemon (gRPC):** An independent, long-running Rust daemon manages persistent exchange WebSockets, market data normalization, live risk checks, and direct order routing.
+
+---
+
+## Environment Configuration
+
+The Monroe Fund requires API credentials for market data feeds, LLM reasoning, and broker execution.
+
+1. **Create your local `.env` file:**
+   ```bash
+   cp .env.example .env
+   ```
+2. **Configure your keys in `.env`:**
+   * **`GEMINI_API_KEY`**: Required for agent reasoning and vector embedding models ([Google AI Studio](https://aistudio.google.com/)).
+   * **`SEC_USER_AGENT`**: Declared User-Agent for SEC EDGAR API compliance (`TheMonroeFund your_email@example.com`).
+   * **`FINNHUB_API_KEY`**: Market fundamentals and economic news sentiment ([Finnhub](https://finnhub.io/)).
+   * **`ALPACA_API_KEY_ID` & `ALPACA_API_SECRET_KEY`**: Paper/live execution and streaming quotes ([Alpaca Markets](https://alpaca.markets/)).
+   * **`DATABASE_URL`**: PostgreSQL connection string for ledger and audit state.
 
 ---
 

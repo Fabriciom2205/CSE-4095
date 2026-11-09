@@ -1,4 +1,4 @@
-# ADR 0001: Polyglot Cloud-Native Trading Platform Architecture
+# ADR 0001: The Monroe Fund Polyglot Cloud-Native Trading Platform Architecture
 
 * **Date:** 2026-11-07
 * **Status:** Accepted
@@ -9,7 +9,7 @@
 
 ## 1. Context & Problem Statement
 
-Building an autonomous agentic trading platform requires simultaneously satisfying conflicting system requirements:
+Building The Monroe Fund as an autonomous agentic trading platform requires simultaneously satisfying conflicting system requirements:
 1. **Dynamic Intelligence & Flexibility:** Rapid integration with evolving LLM ecosystems (Gemini SDK/ADK), Model Context Protocol (MCP) tool suites, and semi-structured external financial data feeds (SEC EDGAR, Finnhub, Alpaca).
 2. **Deterministic Low-Latency & Safety:** High-speed numerical backtesting, unbroken WebSocket streaming, deterministic risk checks, and zero-overhead execution without garbage collection jitter or interpreter lock contention.
 3. **Auditable Transactional Integrity:** Absolute consistency across user balances, orders, execution fills, and immutable agent reasoning audit trails.

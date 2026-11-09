@@ -8,7 +8,7 @@ This repository is shared across multiple contributors and agentic workflows. To
 
 ## Project Overview
 
-A polyglot, performance-tiered, cloud-native agentic trading platform:
+**The Monroe Fund**: A polyglot, performance-tiered, cloud-native agentic trading platform:
 * **Frontend:** TypeScript + React (structural type safety, concurrent UI for market visuals & AI reasoning streams).
 * **Intelligence Tier ("Brain"):** Python with Gemini SDK / ADK, Model Context Protocol (MCP) servers, and financial API integrations (SEC.gov, SEC EDGAR, Finnhub, Alpaca).
 * **Compute & Execution Tier ("Muscle"):** Rust for quantitative backtesting, numerical math, live execution, WebSocket feeds, and deterministic risk checks.
@@ -54,6 +54,9 @@ Use this checklist for handoffs between agents. Keep it up to date.
 
 * [x] Finalize project scope and high-level architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/decisions/0001-polyglot-trading-platform-architecture.md](docs/decisions/0001-polyglot-trading-platform-architecture.md)
 * [x] Implement SEC EDGAR search and in-memory vector RAG agent in [python-brain/](python-brain/)
+* [x] Configure environment variables (.env, .env.example) and update project branding to The Monroe Fund
+* [x] Implement Model Context Protocol (MCP) server for SEC EDGAR tools in [python-brain/mcp_server.py](python-brain/mcp_server.py)
+* [x] Complete codebase audit and refactoring (deduplicate RAG, fix search schema, connection pooling, bounded cache)
 * [ ] Initialize workspace directory structure (frontend, rust-muscle, proto)
 * [ ] Set up protobuf/gRPC definitions for agent-to-daemon communication
 * [ ] Configure PyO3/maturin skeleton for Python-Rust in-process bindings
@@ -68,6 +71,9 @@ Keep a reverse-chronological list of session notes here. Whenever you create a n
 
 | Date | Topic / Session | Note Link | Contributors / Agent |
 | :--- | :--- | :--- | :--- |
+| 2026-11-09 | Codebase Audit & Refactoring | [docs/notes/2026-11-09-codebase-audit-and-refactor.md](docs/notes/2026-11-09-codebase-audit-and-refactor.md) | Antigravity |
+| 2026-11-09 | SEC EDGAR MCP Server Implementation | [docs/notes/2026-11-09-mcp-server-implementation.md](docs/notes/2026-11-09-mcp-server-implementation.md) | Antigravity |
+| 2026-11-09 | The Monroe Fund Branding & Environment Setup | [docs/notes/2026-11-09-monroe-fund-branding-and-env-configuration.md](docs/notes/2026-11-09-monroe-fund-branding-and-env-configuration.md) | Antigravity |
 | 2026-11-08 | Section Targeting & Batch Embedding Optimization | [docs/notes/2026-11-08-section-targeting-and-batch-embedding.md](docs/notes/2026-11-08-section-targeting-and-batch-embedding.md) | Antigravity |
 | 2026-11-07 | SEC Search & RAG Agent Implementation | [docs/notes/2026-11-07-sec-agent-rag-implementation.md](docs/notes/2026-11-07-sec-agent-rag-implementation.md) | Antigravity |
 | 2026-11-07 | Polyglot Architecture & Specifications Documentation | [docs/notes/2026-11-07-architecture-documentation-update.md](docs/notes/2026-11-07-architecture-documentation-update.md) | Antigravity |
