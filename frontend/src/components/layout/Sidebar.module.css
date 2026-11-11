@@ -1,0 +1,103 @@
+/* Floating glass panel inset from the viewport edge. */
+.sidebar {
+  composes: glass from global;
+  position: fixed;
+  top: var(--chrome-gap);
+  bottom: var(--chrome-gap);
+  left: var(--chrome-gap);
+  width: calc(var(--sidebar-width) - var(--chrome-gap) * 2);
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5) var(--space-3);
+  border-radius: var(--radius-glass);
+  z-index: 20;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-2) var(--space-5);
+  margin-bottom: var(--space-6);
+  border-bottom: 3px double var(--color-border-strong);
+}
+
+.seal {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.name {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: var(--text-lg);
+  font-variation-settings: "opsz" 36;
+  line-height: 1.1;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-lens);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-variant: small-caps;
+  text-transform: lowercase;
+  font-weight: 500;
+  font-size: var(--text-base);
+  letter-spacing: 0.05em;
+  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.link:hover {
+  background: color-mix(in srgb, var(--glass-lens) 60%, transparent);
+  color: var(--color-text);
+}
+
+.link:focus-visible {
+  border-radius: var(--radius-lens);
+}
+
+/* Active item sits in a brighter "lens" of glass. */
+.active,
+.active:hover {
+  background: var(--glass-lens);
+  color: var(--color-accent);
+  font-weight: 600;
+  box-shadow: var(--glass-sheen), 0 1px 4px rgba(20, 35, 60, 0.08);
+}
+
+.footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-warning);
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    display: none;
+  }
+}

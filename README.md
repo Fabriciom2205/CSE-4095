@@ -81,6 +81,21 @@ The Monroe Fund requires API credentials for market data feeds, LLM reasoning, a
 
 ---
 
+## Frontend (React + TypeScript)
+
+The web client lives in [`frontend/`](frontend/) (Vite, React 18, TypeScript, CSS Modules, Recharts, lucide-react). It currently runs on typed mock data behind [`frontend/src/data/api.ts`](frontend/src/data/api.ts).
+
+```bash
+cd frontend
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # type-check + production build to frontend/dist
+```
+
+Pages: Dashboard, Trades, Risk limits, Accounts, Research (SEC filings). Light/dark theme follows the OS and can be toggled from the top bar.
+
+---
+
 ## Project Documentation
 
 * **[AGENTS.md](AGENTS.md)**: Operating protocol and index for AI agents and human contributors.

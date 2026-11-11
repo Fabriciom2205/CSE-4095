@@ -1,0 +1,84 @@
+.chart {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Tooltips float over the chart, so they are glass (denser, for legibility). */
+.tooltip {
+  composes: glass from global;
+  position: relative;
+  padding: var(--space-2) var(--space-3);
+  background: var(--glass-bg-strong);
+  border-radius: var(--radius-lens);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.tooltipLabel {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  margin-bottom: 2px;
+}
+
+.tooltipMuted {
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.allocation {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-5);
+}
+
+.donut {
+  width: 148px;
+  height: 148px;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.legendRow {
+  display: grid;
+  grid-template-columns: 10px 1fr auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.legendName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legendPct {
+  color: var(--color-text-secondary);
+  text-align: right;
+}
+
+.legendValue {
+  font-family: var(--font-display);
+  font-weight: 500;
+  text-align: right;
+}

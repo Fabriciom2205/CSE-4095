@@ -1,0 +1,185 @@
+/* Design tokens: "Private Ledger" (cool harbor-mist paper, ink, navy and brass, serif
+   figures) with a layer of Apple-style glass for the floating chrome.
+   Light is the default; dark applies via the OS preference (unless the user
+   forced light) or an explicit data-theme="dark". */
+:root {
+  --color-bg: #eef2f6;
+  --color-surface: #f9fbfc;
+  --color-surface-sunken: #e6ecf2;
+  --color-border: #d3dce6;
+  --color-border-strong: #b4c1cf;
+  --color-text: #15202e;
+  --color-text-secondary: #556273;
+  --color-text-on-accent: #f9fbfc;
+
+  --color-accent: #1f3a5f;
+  --color-accent-hover: #162b47;
+  --color-accent-tint: #e1e8f0;
+  --color-accent-tint-text: #1a3352;
+  /* Brass: rules and ornaments; use --color-brass-text for text. */
+  --color-brass: #a8864a;
+  --color-brass-text: #7a5f2c;
+
+  --color-gain: #1d6b3a;
+  --color-gain-tint: #e4eedf;
+  --color-loss: #a8261f;
+  --color-loss-tint: #f6e1da;
+  --color-warning: #b26a00;
+  --color-warning-text: #8a5200;
+  --color-warning-tint: #fef3e0;
+
+  --chart-1: #1f3a5f;
+  --chart-2: #a8864a;
+  --chart-3: #2f4f3e;
+  --chart-4: #4f7ca8;
+  --chart-5: #c09a82;
+  --chart-6: #9aa3ad;
+  --chart-grid: #e1e7ee;
+
+  /* Glass: floating chrome (sidebar, top bar, tab bar, controls, tooltips).
+     Content stays on solid paper, as in Apple's Liquid Glass guidance. */
+  --glass-bg: rgba(249, 251, 252, 0.3);
+  --glass-bg-strong: rgba(249, 251, 252, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --glass-edge: rgba(255, 255, 255, 0.95);
+  --glass-lens: rgba(255, 255, 255, 0.6);
+  --glass-blur: blur(10px) saturate(180%);
+  --glass-shadow: 0 12px 32px -10px rgba(20, 35, 60, 0.22), 0 2px 6px rgba(20, 35, 60, 0.06);
+  --glass-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 -1px 1px rgba(30, 50, 80, 0.08);
+  /* Soft color behind the glass so the blur has something to refract. */
+  --ambient:
+    radial-gradient(55vw 45vh at 6% -8%, rgba(31, 58, 95, 0.13), transparent 70%),
+    radial-gradient(50vw 45vh at 100% 0%, rgba(168, 134, 74, 0.12), transparent 70%),
+    radial-gradient(60vw 55vh at 85% 108%, rgba(79, 124, 168, 0.12), transparent 70%);
+  --grain: rgba(30, 50, 80, 0.035);
+
+  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Page titles and big figures. */
+  --font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-display: 2.5rem;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Paper is square-cornered; glass is rounded. */
+  --radius: 2px;
+  --radius-sm: 2px;
+  --radius-pill: 999px;
+  --radius-glass: 22px;
+  --radius-lens: 14px;
+  --shadow-card: none;
+  --shadow-pop: 0 2px 10px rgba(20, 35, 60, 0.12);
+
+  /* Gap between floating glass chrome and the viewport edge. */
+  --chrome-gap: 12px;
+  --sidebar-width: 256px;
+  --topbar-height: 60px;
+  --tabbar-height: 64px;
+  --focus-ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-accent);
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #0c1420;
+    --color-surface: #131d2b;
+    --color-surface-sunken: #1b2738;
+    --color-border: #263447;
+    --color-border-strong: #3a4c63;
+    --color-text: #e8eef5;
+    --color-text-secondary: #9fb0c3;
+    --color-text-on-accent: #0c1420;
+    --color-accent: #8fb3de;
+    --color-accent-hover: #a9c6e8;
+    --color-accent-tint: #1e2a38;
+    --color-accent-tint-text: #b9cfea;
+    --color-brass: #c9a66b;
+    --color-brass-text: #d6b77f;
+    --color-gain: #6cc785;
+    --color-gain-tint: #1f3326;
+    --color-loss: #f2806f;
+    --color-loss-tint: #3d2420;
+    --color-warning: #f0a83c;
+    --color-warning-text: #f0b85c;
+    --color-warning-tint: #3a2e1a;
+    --chart-1: #8fb3de;
+    --chart-2: #c9a66b;
+    --chart-3: #7fae92;
+    --chart-4: #5e7fa3;
+    --chart-5: #d6b49e;
+    --chart-6: #6b7a8c;
+    --chart-grid: #1f2b3b;
+    --glass-bg: rgba(22, 34, 50, 0.3);
+    --glass-bg-strong: rgba(22, 34, 50, 0.75);
+    --glass-border: rgba(214, 230, 255, 0.16);
+    --glass-edge: rgba(214, 230, 255, 0.4);
+    --glass-lens: rgba(214, 230, 255, 0.09);
+    --glass-shadow: 0 14px 36px -10px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.3);
+    --glass-sheen: inset 0 1px 0 rgba(214, 230, 255, 0.14), inset 0 -1px 1px rgba(0, 0, 0, 0.2);
+    --ambient:
+      radial-gradient(55vw 45vh at 6% -8%, rgba(143, 179, 222, 0.1), transparent 70%),
+      radial-gradient(50vw 45vh at 100% 0%, rgba(201, 166, 107, 0.11), transparent 70%),
+      radial-gradient(60vw 55vh at 85% 108%, rgba(79, 124, 168, 0.1), transparent 70%);
+    --grain: rgba(214, 230, 255, 0.025);
+    --shadow-pop: 0 4px 16px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #0c1420;
+  --color-surface: #131d2b;
+  --color-surface-sunken: #1b2738;
+  --color-border: #263447;
+  --color-border-strong: #3a4c63;
+  --color-text: #e8eef5;
+  --color-text-secondary: #9fb0c3;
+  --color-text-on-accent: #0c1420;
+  --color-accent: #8fb3de;
+  --color-accent-hover: #a9c6e8;
+  --color-accent-tint: #1e2a38;
+  --color-accent-tint-text: #b9cfea;
+  --color-brass: #c9a66b;
+  --color-brass-text: #d6b77f;
+  --color-gain: #6cc785;
+  --color-gain-tint: #1f3326;
+  --color-loss: #f2806f;
+  --color-loss-tint: #3d2420;
+  --color-warning: #f0a83c;
+  --color-warning-text: #f0b85c;
+  --color-warning-tint: #3a2e1a;
+  --chart-1: #8fb3de;
+  --chart-2: #c9a66b;
+  --chart-3: #7fae92;
+  --chart-4: #5e7fa3;
+  --chart-5: #d6b49e;
+  --chart-6: #6b7a8c;
+  --chart-grid: #1f2b3b;
+  --glass-bg: rgba(22, 34, 50, 0.3);
+  --glass-bg-strong: rgba(22, 34, 50, 0.75);
+  --glass-border: rgba(214, 230, 255, 0.16);
+  --glass-edge: rgba(214, 230, 255, 0.4);
+  --glass-lens: rgba(214, 230, 255, 0.09);
+  --glass-shadow: 0 14px 36px -10px rgba(0, 0, 0, 0.65), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --glass-sheen: inset 0 1px 0 rgba(214, 230, 255, 0.14), inset 0 -1px 1px rgba(0, 0, 0, 0.2);
+  --ambient:
+    radial-gradient(55vw 45vh at 6% -8%, rgba(143, 179, 222, 0.1), transparent 70%),
+    radial-gradient(50vw 45vh at 100% 0%, rgba(201, 166, 107, 0.11), transparent 70%),
+    radial-gradient(60vw 55vh at 85% 108%, rgba(79, 124, 168, 0.1), transparent 70%);
+  --grain: rgba(214, 230, 255, 0.025);
+  --shadow-pop: 0 4px 16px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
