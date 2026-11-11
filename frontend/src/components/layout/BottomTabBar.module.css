@@ -1,0 +1,57 @@
+/* Floating glass capsule above the home indicator, as on iOS. Mobile only. */
+.bar {
+  composes: glass from global;
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .bar {
+    display: block;
+    position: fixed;
+    left: var(--chrome-gap);
+    right: var(--chrome-gap);
+    bottom: calc(var(--chrome-gap) + env(safe-area-inset-bottom, 0px));
+    height: var(--tabbar-height);
+    border-radius: calc(var(--tabbar-height) / 2);
+    z-index: 20;
+  }
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0 6px;
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  align-items: center;
+}
+
+.tab {
+  height: calc(var(--tabbar-height) - 12px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: calc((var(--tabbar-height) - 12px) / 2);
+  font-variant: small-caps;
+  text-transform: lowercase;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.tab:focus-visible {
+  border-radius: calc((var(--tabbar-height) - 12px) / 2);
+}
+
+/* Active tab gets a brighter lens of glass. */
+.active {
+  background: var(--glass-lens);
+  box-shadow: var(--glass-sheen);
+  color: var(--color-accent);
+  font-weight: 600;
+}

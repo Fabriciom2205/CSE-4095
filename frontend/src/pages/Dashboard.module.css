@@ -1,0 +1,101 @@
+.topGrid {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(0, 2fr);
+  gap: var(--space-6);
+}
+
+.balanceCard {
+  display: flex;
+  flex-direction: column;
+}
+
+.eyebrow {
+  font-variant: small-caps;
+  text-transform: lowercase;
+  font-size: var(--text-base);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--color-brass-text);
+  margin-bottom: var(--space-2);
+}
+
+.dayLine {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.balanceStats {
+  margin-top: var(--space-6);
+  padding-top: var(--space-6);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+  border-top: 3px double var(--color-border-strong);
+}
+
+.trendCard {
+  min-width: 0;
+}
+
+.monthStats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.movers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mover {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px dotted var(--color-border-strong);
+}
+
+.mover:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.moverSymbol {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.moverRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-weight: 600;
+}
+
+@media (max-width: 1100px) {
+  .topGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .balanceStats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .topGrid {
+    gap: var(--space-4);
+  }
+}
+
+@media (max-width: 480px) {
+  .balanceStats {
+    grid-template-columns: 1fr 1fr;
+  }
+}

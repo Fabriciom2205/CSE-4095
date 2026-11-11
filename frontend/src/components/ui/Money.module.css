@@ -1,0 +1,43 @@
+.money {
+  white-space: nowrap;
+}
+
+.sm {
+  font-size: var(--text-sm);
+}
+
+.md {
+  font-size: var(--text-base);
+}
+
+/* Large and hero figures are set in the serif display face. */
+.lg,
+.display {
+  font-family: var(--font-display);
+  font-weight: 450;
+  font-variation-settings: "opsz" 96;
+  letter-spacing: -0.01em;
+}
+
+.lg {
+  font-size: var(--text-xl);
+}
+
+.display {
+  font-size: var(--text-display);
+  line-height: 1.1;
+}
+
+.gain {
+  color: var(--color-gain);
+}
+
+.loss {
+  color: var(--color-loss);
+}
+
+@media (max-width: 768px) {
+  .display {
+    font-size: var(--text-2xl);
+  }
+}

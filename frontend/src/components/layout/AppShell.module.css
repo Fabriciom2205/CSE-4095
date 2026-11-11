@@ -1,0 +1,27 @@
+.column {
+  margin-left: var(--sidebar-width);
+  min-height: 100vh;
+  min-width: 0;
+}
+
+.main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--space-8);
+}
+
+.main:focus-visible {
+  box-shadow: none;
+}
+
+@media (max-width: 768px) {
+  .column {
+    margin-left: 0;
+  }
+
+  /* Leave room for the floating tab bar. */
+  .main {
+    padding: var(--space-4) var(--space-4)
+      calc(var(--tabbar-height) + var(--chrome-gap) + var(--space-6) + env(safe-area-inset-bottom, 0px));
+  }
+}
