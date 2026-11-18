@@ -31,6 +31,13 @@ EXPECTED_TOOLS = {
     "sec_get_financial_facts",
     "sec_query_filing_rag",
     "sec_company_research",
+    "massive_daily_bars",
+    "massive_previous_close",
+    "massive_ticker_details",
+    "finnhub_quote",
+    "finnhub_company_news",
+    "finnhub_basic_financials",
+    "finnhub_earnings_calendar",
 }
 # Apple FY2023 10-K
 CIK, ADSH, FILENAME = "0000320193", "0000320193-23-000106", "aapl-20230930.htm"

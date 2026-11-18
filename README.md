@@ -26,7 +26,7 @@ flowchart TD
 | :--- | :--- |
 | **Python brain** | Agent workflows, financial search and aggregation, SEC filings, retrieval, and AI-generated research. |
 | **MCP** | Expose financial data and research tools to agents through MCP. |
-| **Data sources** | SEC EDGAR today; additional financial APIs such as Finnhub and Alpaca are potential integrations. |
+| **Data sources** | SEC EDGAR, Massive (daily prices and company details), and Finnhub (quotes, news, metrics, and earnings dates). Alpaca is a potential integration. |
 | **Frontend** | React + TypeScript research interface; currently mock data. |
 | **Storage** | Cloud SQL filing retrieval is live and verified. A standalone importer can also store selected SEC data. |
 

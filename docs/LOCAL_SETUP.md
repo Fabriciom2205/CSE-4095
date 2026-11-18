@@ -17,6 +17,8 @@ test -e .env || cp .env.example .env
 
 In `.env`, set `GOOGLE_CLOUD_PROJECT` to the project used for Gemini and `SEC_USER_AGENT` to your organization name and a real email address. Keep `GOOGLE_CLOUD_LOCATION=global` and `GEMINI_EMBEDDING_MODEL=gemini-embedding-2` to match the verified configuration. The embedding model is part of the index key, so changing it can require a fresh index.
 
+Optionally, set `MASSIVE_API_KEY` and `FINNHUB_API_KEY` to enable the market data tools. Without a key, only that provider's tools are unavailable, and the health check skips its live check. Obtain the keys through the team's secure channel and keep them out of the repository.
+
 ## 2. Get access and start the proxy
 
 Ask the project admin for the Cloud SQL instance connection name for `mfund-instance`, Cloud SQL Client access, and permission to call Gemini through Vertex AI. Ask for the PostgreSQL `sec_reader` credential through the team's secure channel. You also need `sec_index_writer` if you plan to build missing indexes. The existing project database already has the required migrations and grants. [Connect using the Cloud SQL Auth Proxy](https://docs.cloud.google.com/sql/docs/postgres/connect-auth-proxy) · [Vertex AI authentication](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/gcp-auth)
@@ -91,5 +93,6 @@ SEC_RAG_WRITE_DSN='' python -c 'from agent import sec_query_filing_rag; print(se
 | PostgreSQL check says `SKIP` | Set `SEC_RAG_READ_DSN` in the repository-root `.env`. |
 | Reader-only filing check says the index is missing | Run the same ticker, form, and section with the writer enabled first. A newly filed report or a different embedding model can select a different index. |
 | Gemini authentication or permission error | Check ADC, `GOOGLE_CLOUD_PROJECT`, and your Vertex AI access. |
+| Market data tool reports a missing key, HTTP 401 or 403, or a rate limit | Check `MASSIVE_API_KEY` or `FINNHUB_API_KEY`, and whether the provider plan includes that data and request rate. |
 
 For SQL migrations, the standalone importer, or tests that insert fixture rows into a disposable database, see the [PostgreSQL administration guide](POSTGRESQL.md#enable-persistent-filing-retrieval).

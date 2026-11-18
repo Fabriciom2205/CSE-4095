@@ -17,6 +17,10 @@ import init
 import mcp_server
 import sec_client
 
+AGENT_TOOLS = ["sec_company_research", "sec_query_filing_rag", "sec_get_financial_facts",
+               "massive_previous_close", "massive_daily_bars", "massive_ticker_details", "finnhub_quote",
+               "finnhub_company_news", "finnhub_basic_financials", "finnhub_earnings_calendar"]
+
 
 class ResearchTests(unittest.TestCase):
     def test_chat_keeps_google_client_alive(self):
@@ -43,8 +47,7 @@ class ResearchTests(unittest.TestCase):
             chat = agent.create_sec_agent()
         declarations = [declaration for tool in _transformers.t_tools(client._api_client, chat._config.tools)
                         for declaration in tool.function_declarations or []]
-        self.assertEqual([d.name for d in declarations],
-                         ["sec_company_research", "sec_query_filing_rag", "sec_get_financial_facts"])
+        self.assertEqual([d.name for d in declarations], AGENT_TOOLS)
         self.assertEqual(set(declarations[1].parameters_json_schema["required"]), {"ticker", "question"})
         client.close()
 
@@ -55,8 +58,7 @@ class ResearchTests(unittest.TestCase):
         with patch.object(agent.google_client, "create_client") as create_client:
             agent.create_sec_agent()
             config = create_client.return_value.chats.create.call_args.kwargs["config"]
-            self.assertEqual([tool.__name__ for tool in config.tools],
-                             ["sec_company_research", "sec_query_filing_rag", "sec_get_financial_facts"])
+            self.assertEqual([tool.__name__ for tool in config.tools], AGENT_TOOLS)
             self.assertIn("sec_company_research", config.system_instruction)
             self.assertIn("sec_query_filing_rag", config.system_instruction)
 

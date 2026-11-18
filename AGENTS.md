@@ -90,6 +90,9 @@ Use this checklist for handoffs between agents. Keep it up to date.
 * [x] Document local backend and Cloud SQL setup, password-file configuration, and 10-Q verification in [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md)
 * [ ] Configure Secret Manager references for the database roles when deploying the backend (see [setup](docs/POSTGRESQL.md#runtime-credentials-in-secret-manager))
 * [x] Prepare the shared security and PostgreSQL changes for the main branch (see [release handoff](docs/notes/2026-11-17-security-postgresql-release.md))
+* [x] Implement Massive and Finnhub market data clients, MCP tools, and agent tools (see [market data tools](docs/notes/2026-11-18-market-data-tools.md))
+* [x] Verify the Massive and Finnhub tools against live APIs (see [market data tools](docs/notes/2026-11-18-market-data-tools.md))
+* [ ] Confirm market data endpoint scope and plan tiers with Jhoan; check an end-to-end agent answer that combines filings and market data (see [market data tools](docs/notes/2026-11-18-market-data-tools.md))
 * [ ] Evaluate PostgreSQL reads for consolidated financial facts
 * [ ] Set up Python service deployment and CI/CD when needed, applying Well-Architected guidance and documenting unmet controls
 
@@ -101,6 +104,8 @@ Keep a reverse-chronological list of session notes here. Whenever you create a n
 
 | Date | Topic / Session | Note Link | Contributors / Agent |
 | :--- | :--- | :--- | :--- |
+| 2026-11-18 | Massive and Finnhub market data tools | [docs/notes/2026-11-18-market-data-tools.md](docs/notes/2026-11-18-market-data-tools.md) | Fabricio |
+| 2026-11-18 | Market data API kickoff (Massive and Finnhub) | [docs/notes/2026-11-18-market-data-api-kickoff.md](docs/notes/2026-11-18-market-data-api-kickoff.md) | Fabricio |
 | 2026-11-17 | README architecture diagram | [docs/notes/2026-11-17-readme-architecture-diagram.md](docs/notes/2026-11-17-readme-architecture-diagram.md) | Codex |
 | 2026-11-17 | Security and PostgreSQL release handoff | [docs/notes/2026-11-17-security-postgresql-release.md](docs/notes/2026-11-17-security-postgresql-release.md) | Codex |
 | 2026-11-17 | Local backend and Cloud SQL setup guide | [docs/notes/2026-11-17-local-cloud-sql-setup-guide.md](docs/notes/2026-11-17-local-cloud-sql-setup-guide.md) | Codex |
