@@ -28,10 +28,12 @@ sys.path.insert(0, str(BRAIN_DIR))
 
 # google-genai 3.x requires Python 3.11+
 MIN_PYTHON = (3, 11)
-BRAIN_MODULES = ["sec_client", "filing_rag", "agent", "mcp_server"]
+BRAIN_MODULES = ["sec_client", "filing_rag", "market_data", "agent", "mcp_server"]
 REQUIRED_ENV = ["GOOGLE_CLOUD_PROJECT", "SEC_USER_AGENT"]
+# Optional: without a key, only that provider's market data tools are unavailable
+MARKET_DATA_KEYS = {"massive": "MASSIVE_API_KEY", "finnhub": "FINNHUB_API_KEY"}
 # Declared in .env.example for other tiers; python-brain does not read them yet
-FUTURE_ENV = ["FINNHUB_API_KEY", "ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY", "DATABASE_URL"]
+FUTURE_ENV = ["ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY", "DATABASE_URL"]
 
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
 _results = []
@@ -140,6 +142,13 @@ def check_future_env_var(name: str, placeholders: dict):
     return SKIP, f"{state}; not used by python-brain yet"
 
 
+def check_market_data_key(provider: str):
+    import market_data
+    if market_data.api_key(provider):
+        return PASS, "set"
+    return SKIP, "not set; its market data tools report the missing key"
+
+
 # ------------------------------------------------------------------------------
 # Code wiring checks (offline)
 # ------------------------------------------------------------------------------
@@ -199,6 +208,22 @@ def check_sec_financial_facts():
     if not facts.get("units"):
         return FAIL, "data.sec.gov returned no 'Assets' facts for AAPL"
     return PASS, "data.sec.gov reachable, XBRL facts parsed"
+
+
+def check_massive():
+    import market_data
+    if not market_data.api_key("massive"):
+        return SKIP, "MASSIVE_API_KEY not set"
+    bar = market_data.massive_previous_close("AAPL")
+    return PASS, f"api.massive.com reachable, AAPL closed at {bar['close']} on {bar['date']}"
+
+
+def check_finnhub():
+    import market_data
+    if not market_data.api_key("finnhub"):
+        return SKIP, "FINNHUB_API_KEY not set"
+    quote = market_data.finnhub_quote("AAPL")
+    return PASS, f"finnhub.io reachable, AAPL quote {quote['price']} as of {quote['as_of']}"
 
 
 def check_gemini_embeddings():
@@ -280,6 +305,8 @@ def main() -> int:
     placeholders = _placeholder_values()
     for name in REQUIRED_ENV:
         _run(name, check_env_var, name, placeholders)
+    for provider, name in MARKET_DATA_KEYS.items():
+        _run(name, check_market_data_key, provider)
     for name in FUTURE_ENV:
         _run(name, check_future_env_var, name, placeholders)
 
@@ -297,6 +324,8 @@ def main() -> int:
         _run("SEC company tickers", check_sec_cik_lookup)
         _run("SEC full-text search", check_sec_full_text_search)
         _run("SEC XBRL financial facts", check_sec_financial_facts)
+        _run("Massive previous close", check_massive)
+        _run("Finnhub quote", check_finnhub)
         _run("Gemini embeddings", check_gemini_embeddings)
         _run("Gemini agent chat", check_agent_chat)
 

@@ -8,7 +8,7 @@ The Monroe Fund prioritizes Python-based agentic financial research: searching a
 
 * **Python brain:** The Gemini agent calls Python research tools for company lookup, filing search, retrieval, and synthesis. The MCP server exposes the shared tools to MCP clients.
 * **MCP:** Maintain and test the SEC MCP server and its research tools, including both supported transports. Expand tools and sources as research needs warrant.
-* **Financial data aggregation:** Combine structured financial facts and unstructured filings, with further sources such as Finnhub and Alpaca to be evaluated and integrated as needed. Attribute findings to their sources and validate data quality.
+* **Financial data aggregation:** Combine structured financial facts, unstructured filings, and Massive and Finnhub market data, with further sources such as Alpaca to be evaluated as needed. Attribute findings to their sources and validate data quality.
 * **Research interface:** The React frontend uses mock data. A Python HTTP API and integration with its Research page are planned.
 * **Storage and deployment:** The project Cloud SQL database has pgvector and the filing retrieval tables. Live verification covered building a new index and reusing it with reader-only credentials. The standalone importer can store selected facts and auditor data. Financial-fact tools still query EDGAR live. [PostgreSQL decision](decisions/0003-postgresql-sec-research.md) · [Cloud SQL verification](notes/2026-11-17-cloud-sql-filing-retrieval.md)
 

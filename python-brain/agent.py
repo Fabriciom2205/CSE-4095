@@ -20,6 +20,16 @@ tool_get_financial_facts = mcp_server.sec_get_financial_facts
 tool_query_filing_vector_database = mcp_server.sec_query_filing_rag
 tool_company_research = mcp_server.sec_company_research
 
+MARKET_DATA_TOOLS = [
+    mcp_server.massive_previous_close,
+    mcp_server.massive_daily_bars,
+    mcp_server.massive_ticker_details,
+    mcp_server.finnhub_quote,
+    mcp_server.finnhub_company_news,
+    mcp_server.finnhub_basic_financials,
+    mcp_server.finnhub_earnings_calendar,
+]
+
 
 @mcp_server.tool_errors
 def sec_query_filing_rag(ticker: str, question: str, section: str = "key_sections", form: str = "10-K", top_k: int = 4) -> dict:
@@ -49,13 +59,14 @@ def _memo(func):
 
 
 def create_sec_agent(model: str = "gemini-3.8-flash"):
-    """Instantiates a Gemini agent equipped with SEC search and RAG retrieval tools."""
+    """Instantiates a Gemini agent equipped with SEC search, RAG retrieval, and market data tools."""
     client = google_client.create_client()
 
     tools = [
         _memo(tool_company_research),
         _memo(sec_query_filing_rag),
         _memo(sec_get_financial_facts),
+        *(_memo(tool) for tool in MARKET_DATA_TOOLS),
     ]
 
     system_instruction = (
@@ -69,7 +80,10 @@ def create_sec_agent(model: str = "gemini-3.8-flash"):
         "Once you have relevant excerpts, answer from them without repeating searches; "
         "if evidence is insufficient, say so. "
         "Never ask for a full filing document; you receive excerpts. "
-        "Always cite the accession number, filing date, and source facts."
+        "For prices, quotes, news, valuation metrics, or earnings dates, use the massive_ and finnhub_ market data tools; "
+        "if one reports a missing API key or plan limit, say so instead of guessing figures. "
+        "Always cite the accession number, filing date, and source facts for filings, "
+        "and the provider and as-of date for market data."
     )
 
     config = types.GenerateContentConfig(
