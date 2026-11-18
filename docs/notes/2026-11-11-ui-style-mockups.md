@@ -1,4 +1,4 @@
-# Worklog: UI Restyle — Private Ledger + Apple-style Glass
+# Worklog: Private Ledger with Glass Navigation
 
 * **Date:** 2026-11-11
 * **Contributor / Agent:** Claude Code (Opus 5.5)
@@ -8,7 +8,7 @@
 ---
 
 ## Objective
-The user wanted the frontend to look more distinctive. We built live, switchable mockups of two directions, **Private Ledger** and **Swiss Brutalist**. The user picked Ledger and asked to add glass in the style of Apple's Liquid Glass. Ledger is now the only design, and the mockup scaffolding has been removed.
+The user wanted the frontend to look more distinctive. We built live, switchable mockups of two directions, **Private Ledger** and **Swiss Brutalist**. The user picked Ledger with translucent glass navigation and controls. The mockup scaffolding has been removed.
 
 ---
 
@@ -21,7 +21,7 @@ The user wanted the frontend to look more distinctive. We built live, switchable
 * Glass chrome, applied with `composes: glass from global;`:
   * [Sidebar](../../frontend/src/components/layout/Sidebar.module.css): a floating inset panel; the active link sits on a brighter lens.
   * [TopBar](../../frontend/src/components/layout/TopBar.module.css): sticky floating bar with a capsule search field.
-  * [BottomTabBar](../../frontend/src/components/layout/BottomTabBar.module.css): floating iOS-style capsule with a lens on the active tab.
+  * [BottomTabBar](../../frontend/src/components/layout/BottomTabBar.module.css): floating capsule with a lens on the active tab.
   * [SegmentedControl](../../frontend/src/components/ui/SegmentedControl.module.css): glass capsule; the selected option is a burgundy pill.
   * Chart tooltips in [charts.module.css](../../frontend/src/components/charts/charts.module.css).
 * Ledger typography and rules were folded into the base component CSS: Card, StatTile, Money, Button, Chip, ProgressBar, TradeList, and the page/Dashboard/Trades/Risk modules. That covers Fraunces headings and figures, small-caps labels, double rules under headers, dotted row rules, and faint banding on the Trades table.
@@ -32,7 +32,7 @@ The user wanted the frontend to look more distinctive. We built live, switchable
 ---
 
 ## Key Decisions & Context
-* **Glass follows Apple's rule: chrome only.** Navigation and controls float above content as glass. Data cards stay on solid paper so figures stay legible. Making the cards glass too would hurt contrast on financial data.
+* **Glass is used for navigation and controls.** Data cards stay on solid paper to keep figures legible.
 * **Glass needs something to refract.** A flat cream background makes glass look like plain tinted panels, so `--ambient` adds faint burgundy, brass, and green glows behind everything.
 * **Paper is square, glass is round.** Content keeps 2px corners. Glass chrome uses `--radius-glass` (22px) and pill shapes.
 * `composes` isn't allowed inside `@media`, so `BottomTabBar .bar` composes glass at the top level and stays `display: none` on desktop.

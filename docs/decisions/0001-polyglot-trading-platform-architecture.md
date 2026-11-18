@@ -1,7 +1,7 @@
 # ADR 0001: The Monroe Fund Polyglot Cloud-Native Trading Platform Architecture
 
 * **Date:** 2026-11-07
-* **Status:** Accepted
+* **Status:** Partially superseded by [ADR 0002](0002-python-first-research-scope.md) for project priorities and near-term scope
 * **Authors / Agents:** Antigravity (Assistant), Marlon, Fabricio, Misael
 * **Supersedes:** None
 

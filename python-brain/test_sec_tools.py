@@ -1,4 +1,5 @@
 import os
+from unittest.mock import patch
 import asyncio
 import numpy as np
 import sec_client
@@ -100,27 +101,28 @@ def test_env_and_branding():
     assert "TheMonroeFund" in sec_client.DEFAULT_USER_AGENT
 
 
-def test_agent_api_key_validation():
-    # Save original env vars
-    orig_gemini = os.environ.get("GEMINI_API_KEY")
-    orig_google = os.environ.get("GOOGLE_API_KEY")
-    try:
-        os.environ.pop("GEMINI_API_KEY", None)
-        os.environ.pop("GOOGLE_API_KEY", None)
-        try:
-            agent.create_sec_agent()
-            assert False, "Expected ValueError when no API key is configured"
-        except ValueError as e:
-            assert "Gemini API key not found" in str(e)
+def test_agent_cloud_client():
+    with patch.dict(os.environ, {"GOOGLE_CLOUD_PROJECT": "test-project", "GOOGLE_CLOUD_LOCATION": "global", "GEMINI_API_KEY": "old-key"}):
+        client = agent.google_client.create_client()
+        assert client._api_client.vertexai
+        assert client._api_client.project == "test-project"
+        assert client._api_client.api_key is None
+        assert client._api_client._http_options.api_version == "v1"
+        with patch.object(agent.google_client, "create_client") as create_client:
+            chat = agent.create_sec_agent()
+            create_client.return_value.chats.create.assert_called_once()
+            assert create_client.return_value.chats.create.call_args.kwargs["model"] == "gemini-3.8-flash"
+            assert chat is create_client.return_value.chats.create.return_value
+            with patch.object(mcp_server.filing_rag, "query_filing_rag", return_value="result") as query:
+                assert mcp_server.sec_query_filing_rag("cik", "accession", "file", "question")["data"]["excerpts"] == "result"
+                assert query.call_args.kwargs["client"] is create_client.return_value
 
-        # Test with mock key passed directly
-        chat = agent.create_sec_agent(api_key="mock_key_for_testing")
-        assert chat is not None
-    finally:
-        if orig_gemini:
-            os.environ["GEMINI_API_KEY"] = orig_gemini
-        if orig_google:
-            os.environ["GOOGLE_API_KEY"] = orig_google
+    with patch.dict(os.environ, {}, clear=True):
+        try:
+            agent.google_client.create_client()
+            assert False, "Expected a missing project error"
+        except ValueError as error:
+            assert "GOOGLE_CLOUD_PROJECT" in str(error)
 
 
 async def test_mcp_server():
@@ -133,6 +135,7 @@ async def test_mcp_server():
         "sec_fetch_filing_text",
         "sec_get_financial_facts",
         "sec_query_filing_rag",
+        "sec_company_research",
     ]
     for exp in expected_tools:
         assert exp in tool_names, f"Expected tool {exp} to be registered in MCP server"
@@ -173,7 +176,7 @@ if __name__ == "__main__":
     test_cosine_similarity()
     test_archive_url_construction()
     test_env_and_branding()
-    test_agent_api_key_validation()
+    test_agent_cloud_client()
     test_cache_eviction_bounded()
     asyncio.run(test_mcp_server())
     print("All SEC agent & MCP server self-checks passed successfully.")

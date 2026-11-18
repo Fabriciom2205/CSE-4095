@@ -39,7 +39,7 @@ export function Research() {
         <input
           id="filing-search"
           type="search"
-          placeholder="e.g. NVDA, 10-Q, buyback"
+          placeholder="Ticker, filing type, or keyword"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className={styles.input}
@@ -51,7 +51,7 @@ export function Research() {
       ) : filings.length === 0 ? (
         <Card>
           <EmptyState icon={<FileSearch size={20} />} title={`No filings match “${deferred}”`}>
-            Try a ticker such as AAPL or a form type such as 8-K.
+            Try a stock ticker or an SEC form such as 8-K.
           </EmptyState>
         </Card>
       ) : (

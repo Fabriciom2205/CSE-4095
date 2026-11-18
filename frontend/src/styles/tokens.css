@@ -1,5 +1,5 @@
 /* Design tokens: "Private Ledger" (cool harbor-mist paper, ink, navy and brass, serif
-   figures) with a layer of Apple-style glass for the floating chrome.
+   figures) with translucent glass for the floating chrome.
    Light is the default; dark applies via the OS preference (unless the user
    forced light) or an explicit data-theme="dark". */
 :root {
@@ -37,7 +37,7 @@
   --chart-grid: #e1e7ee;
 
   /* Glass: floating chrome (sidebar, top bar, tab bar, controls, tooltips).
-     Content stays on solid paper, as in Apple's Liquid Glass guidance. */
+     Content stays on solid paper to keep text and figures legible. */
   --glass-bg: rgba(249, 251, 252, 0.3);
   --glass-bg-strong: rgba(249, 251, 252, 0.72);
   --glass-border: rgba(255, 255, 255, 0.7);

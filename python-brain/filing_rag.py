@@ -1,9 +1,11 @@
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from bs4 import BeautifulSoup
 from google import genai
 
+import filing_store
 import sec_client
 
 try:
@@ -13,7 +15,9 @@ except ImportError:
     pass
 
 DEFAULT_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-2")
-FALLBACK_EMBEDDING_MODEL = "text-embedding-004"
+EMBEDDING_DIMENSIONS = 1536
+# Increment when extraction or chunk construction changes.
+CHUNK_VERSION = 1
 MAX_CACHED_FILINGS = 20
 
 # In-memory store: {filing_key: {"chunks": list[str], "embeddings": np.ndarray}}
@@ -39,10 +43,17 @@ SECTION_RULES = {
 }
 
 
+def _validate_section(section: str) -> str:
+    target = section.lower().strip()
+    if target not in (*SECTION_RULES, "key_sections", "all", "default"):
+        raise ValueError("Unknown section; use business, risk_factors, mda, financials, or key_sections")
+    return target
+
+
 def _extract_longest_span(text: str, start_pat: str, end_pat: str) -> str:
     """Extracts the section body matching start/end patterns, skipping short TOC matches."""
-    starts = [m.start() for m in re.finditer(start_pat, text, re.IGNORECASE)]
-    ends = [m.start() for m in re.finditer(end_pat, text, re.IGNORECASE)]
+    starts = [m.start() for m in re.finditer(r"^[ \t]*" + start_pat, text, re.IGNORECASE | re.MULTILINE)]
+    ends = [m.start() for m in re.finditer(r"^[ \t]*" + end_pat + r"(?=\s*\.)", text, re.IGNORECASE | re.MULTILINE)]
     longest = ""
     for s in starts:
         valid_ends = [e for e in ends if e > s]
@@ -56,7 +67,7 @@ def _extract_longest_span(text: str, start_pat: str, end_pat: str) -> str:
 
 def filter_filing_sections(text: str, section: str = "key_sections") -> str:
     """Extracts target filing sections (business, risk_factors, mda, financials), discarding exhibits and boilerplate."""
-    target = section.lower().strip()
+    target = _validate_section(section)
 
     if target in SECTION_RULES:
         start_pat, end_pat = SECTION_RULES[target]
@@ -88,7 +99,9 @@ def clean_and_chunk_html(
 ) -> list[str]:
     """Strips HTML boilerplate, isolates key sections, and yields semantic paragraph chunks without an arbitrary cap."""
     soup = BeautifulSoup(html_content, "html.parser")
-    for elem in soup(["script", "style", "noscript", "header", "footer"]):
+    for elem in soup(["script", "style", "noscript", "header", "footer", "ix:header"]):
+        elem.extract()
+    for elem in soup.find_all(style=re.compile(r"display\s*:\s*none\b", re.IGNORECASE)):
         elem.extract()
 
     raw_text = soup.get_text(separator="\n")
@@ -130,27 +143,22 @@ def get_batch_embeddings(
     model: str = DEFAULT_EMBEDDING_MODEL,
     batch_size: int = 100,
 ) -> np.ndarray:
-    """Embeds a list of texts in batches of up to 100 per HTTP request with automatic fallback."""
+    """Embed each text separately; Gemini Embedding 2 aggregates multiple strings."""
     all_embeddings = []
 
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i:i + batch_size]
-        try:
-            resp = client.models.embed_content(model=model, contents=batch)
-        except Exception:
-            # Fallback to secondary model if primary model is unavailable or lacks permission
-            resp = client.models.embed_content(model=FALLBACK_EMBEDDING_MODEL, contents=batch)
+    def embed(text):
+        resp = client.models.embed_content(
+            model=model, contents=text, config={"output_dimensionality": EMBEDDING_DIMENSIONS}
+        )
+        if not resp.embeddings or len(resp.embeddings) != 1:
+            raise ValueError("Expected one embedding per text")
+        vec = np.array(resp.embeddings[0].values, dtype=np.float32)
+        norm = np.linalg.norm(vec)
+        return vec / norm if norm > 0 else vec
 
-        # Handle batch or single result payload
-        if hasattr(resp, "embeddings") and resp.embeddings:
-            for item in resp.embeddings:
-                vec = np.array(item.values, dtype=np.float32)
-                norm = np.linalg.norm(vec)
-                all_embeddings.append(vec / norm if norm > 0 else vec)
-        elif hasattr(resp, "embedding") and resp.embedding:
-            vec = np.array(resp.embedding.values, dtype=np.float32)
-            norm = np.linalg.norm(vec)
-            all_embeddings.append(vec / norm if norm > 0 else vec)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        for i in range(0, len(texts), batch_size):
+            all_embeddings.extend(executor.map(embed, texts[i:i + batch_size]))
 
     return np.array(all_embeddings, dtype=np.float32)
 
@@ -198,6 +206,42 @@ def query_filing_index(
     return [{"chunk": chunks[i], "score": float(scores[i])} for i in top_indices]
 
 
+def _postgres_embeddings(client, texts, model):
+    try:
+        embeddings = get_batch_embeddings(client, texts, model=model)
+    except Exception as error:
+        raise ValueError(f"Filing index embedding request failed ({type(error).__name__})") from None
+    if (
+        embeddings.shape != (len(texts), EMBEDDING_DIMENSIONS)
+        or not np.isfinite(embeddings).all()
+        or not np.any(embeddings, axis=1).all()
+    ):
+        raise ValueError(f"Filing index requires {EMBEDDING_DIMENSIONS}-dimensional, finite, nonzero embeddings")
+    return embeddings
+
+
+def _query_postgres(read_dsn, write_dsn, cik, accession, filename, section, question, client, top_k):
+    model = DEFAULT_EMBEDDING_MODEL
+    key = (cik, accession, filename, section, model, EMBEDDING_DIMENSIONS, CHUNK_VERSION)
+    index_id = filing_store.find_index(read_dsn, key)
+    if index_id is None:
+        if not write_dsn:
+            raise ValueError("Filing index is missing; configure SEC_RAG_WRITE_DSN to build it")
+        raw_html = sec_client.tool_fetch_filing_text(cik=cik, accession_number=accession, filename=filename)
+        chunks = clean_and_chunk_html(raw_html, section=section)
+        if not chunks:
+            return None
+        # shortcut: concurrent misses can repeat embedding work; coordinate builds if this becomes costly.
+        embeddings = _postgres_embeddings(client, chunks, model)
+        filing_store.publish_index(write_dsn, key, chunks, embeddings)
+        index_id = filing_store.find_index(read_dsn, key)
+        if index_id is None:
+            raise filing_store.FilingStoreError("Published filing index is unavailable through SEC_RAG_READ_DSN")
+
+    embedding = _postgres_embeddings(client, [question], model)[0]
+    return filing_store.search_index(read_dsn, index_id, embedding, top_k)
+
+
 def query_filing_rag(
     cik: str,
     accession_number: str,
@@ -208,15 +252,31 @@ def query_filing_rag(
     top_k: int = 4,
 ) -> str:
     """Indexes targeted filing sections and runs vector similarity search with Gemini embeddings."""
-    cache_key = f"{cik}_{accession_number}_{filename}_{section}"
-    if cache_key not in _filing_indices:
-        raw_html = sec_client.tool_fetch_filing_text(cik=cik, accession_number=accession_number, filename=filename)
-        chunks = clean_and_chunk_html(raw_html, section=section)
-        if not chunks:
+    section = _validate_section(section)
+    if not isinstance(question, str) or not question.strip() or len(question) > 2000:
+        raise ValueError("Question must contain 1 to 2000 characters")
+    if not isinstance(top_k, int) or isinstance(top_k, bool) or not 1 <= top_k <= 10:
+        raise ValueError("top_k must be between 1 and 10")
+    cik = sec_client._validate_cik(cik)
+    sec_client._validate_accession(accession_number)
+    sec_client._validate_filename(filename)
+    read_dsn = os.getenv("SEC_RAG_READ_DSN")
+    write_dsn = os.getenv("SEC_RAG_WRITE_DSN")
+    if read_dsn:
+        results = _query_postgres(read_dsn, write_dsn, cik, accession_number, filename, section, question, client, top_k)
+        if results is None:
             return "No matching content found in target filing section."
-        index_filing(cache_key, chunks, client=client)
-
-    results = query_filing_index(cache_key, query=question, client=client, top_k=top_k)
+    else:
+        if write_dsn:
+            raise ValueError("Configure SEC_RAG_READ_DSN to use PostgreSQL filing retrieval")
+        cache_key = f"{cik}_{accession_number}_{filename}_{section}"
+        if cache_key not in _filing_indices:
+            raw_html = sec_client.tool_fetch_filing_text(cik=cik, accession_number=accession_number, filename=filename)
+            chunks = clean_and_chunk_html(raw_html, section=section)
+            if not chunks:
+                return "No matching content found in target filing section."
+            index_filing(cache_key, chunks, client=client)
+        results = query_filing_index(cache_key, query=question, client=client, top_k=top_k)
     if not results:
         return "No matching sections found in filing."
 

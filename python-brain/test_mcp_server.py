@@ -2,7 +2,7 @@
 
 Exercises every tool, the filing resource and the analysis prompt in-process, then connects
 to mcp_server.py as a real MCP client over stdio and streamable-http. Hits SEC EDGAR live;
-the RAG tool test also calls Gemini and is skipped without GEMINI_API_KEY.
+the RAG tool test also calls Gemini and is skipped without GOOGLE_CLOUD_PROJECT.
 
 Usage:
     python test_mcp_server.py
@@ -30,6 +30,7 @@ EXPECTED_TOOLS = {
     "sec_fetch_filing_text",
     "sec_get_financial_facts",
     "sec_query_filing_rag",
+    "sec_company_research",
 }
 # Apple FY2023 10-K
 CIK, ADSH, FILENAME = "0000320193", "0000320193-23-000106", "aapl-20230930.htm"
@@ -90,20 +91,20 @@ async def test_analysis_prompt():
     body = prompt.messages[0].content.text
     assert "MSFT" in body and "10-Q" in body
     # Every tool the prompt tells the model to use must exist on the server
-    for tool in ("sec_cik_lookup", "sec_get_financial_facts", "sec_full_text_search", "sec_query_filing_rag"):
+    for tool in ("sec_cik_lookup", "sec_get_financial_facts", "sec_company_research", "sec_query_filing_rag"):
         assert tool in body and tool in EXPECTED_TOOLS
 
 
 async def test_filing_rag_via_mcp():
-    if not (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")):
-        print("  skipped test_filing_rag_via_mcp: no Gemini API key")
+    if not os.getenv("GOOGLE_CLOUD_PROJECT"):
+        print("  skipped test_filing_rag_via_mcp: no Google Cloud project")
         return
     res = await mcp_server.mcp.call_tool("sec_query_filing_rag", {
         "cik": CIK, "accession_number": ADSH, "filename": FILENAME,
         "question": "supply chain risks", "section": "risk_factors", "top_k": 1,
     })
     assert res.is_error is False
-    assert _text(res).startswith("[Excerpt 1 | Similarity:")
+    assert "[Excerpt 1 | Similarity:" in _text(res)
 
 
 async def _exercise_client(session: ClientSession):
@@ -115,8 +116,9 @@ async def _exercise_client(session: ClientSession):
     res = await session.call_tool("sec_cik_lookup", {"company_name_or_ticker": "AAPL"})
     assert res.structured_content == {"result": CIK}
 
-    res = await session.call_tool("sec_fetch_filing_text", {"cik": CIK, "accession_number": ADSH, "filename": "missing.htm"})
+    res = await session.call_tool("sec_company_research", {"ticker": "", "question": "risk"})
     assert res.is_error is True
+    assert "Ticker and question must not be empty" in _text(res)
 
 
 async def test_stdio_transport():

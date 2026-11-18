@@ -1,137 +1,54 @@
-# The Monroe Fund — System Architecture & Technical Specifications
+# The Monroe Fund — Architecture & Technical Direction
 
-This document defines the architectural blueprints, technology selections, data boundaries, and operational invariants for **The Monroe Fund**, a polyglot, performance-tiered, cloud-native agentic trading platform.
+The Monroe Fund prioritizes Python-based agentic financial research: searching and aggregating financial data, exposing tools through MCP, and producing grounded AI-assisted analysis. This document describes the direction and distinguishes existing capabilities from planned work.
 
 ---
 
-## 1. High-Level Overview & Core Philosophy
+## 1. Near-Term Scope
 
-The Monroe Fund decouples autonomous reasoning from real-time execution:
-* **The Brain (Cognitive / Orchestration Layer):** Flexible, dynamic, ecosystem-rich Python services responsible for LLM workflows, financial data ingestion, Model Context Protocol (MCP) tool hosting, and trade thesis generation.
-* **The Muscle (Execution & Compute Layer):** Memory-safe, zero-cost abstraction, low-latency Rust services responsible for backtesting, numerical math, deterministic risk validation, WebSocket stream ingestion, and broker execution.
-* **The System of Record:** PostgreSQL as the single source of truth for transactional state, ledgers, audit logs, and vector storage.
-* **The Infrastructure Fabric:** Google Cloud Platform (GCP) for containerized serverless runtimes, job execution, managed databases, and cloud-native object storage.
+* **Python brain:** The Gemini agent calls Python research tools for company lookup, filing search, retrieval, and synthesis. The MCP server exposes the shared tools to MCP clients.
+* **MCP:** Maintain and test the SEC MCP server and its research tools, including both supported transports. Expand tools and sources as research needs warrant.
+* **Financial data aggregation:** Combine structured financial facts and unstructured filings, with further sources such as Finnhub and Alpaca to be evaluated and integrated as needed. Attribute findings to their sources and validate data quality.
+* **Research interface:** The React frontend uses mock data. A Python HTTP API and integration with its Research page are planned.
+* **Storage and deployment:** The project Cloud SQL database has pgvector and the filing retrieval tables. Live verification covered building a new index and reusing it with reader-only credentials. The standalone importer can store selected facts and auditor data. Financial-fact tools still query EDGAR live. [PostgreSQL decision](decisions/0003-postgresql-sec-research.md) · [Cloud SQL verification](notes/2026-11-17-cloud-sql-filing-retrieval.md)
 
 ```mermaid
-flowchart TD
-    subgraph ClientLayer ["Client Layer"]
-        UI["TypeScript + React App\n(High-frequency visualizations & AI reasoning streams)"]
-    end
-
-    subgraph IntelligenceLayer ["Intelligence Tier (Python / Cloud Run)"]
-        AgentCore["Agent Orchestrator (Gemini SDK / ADK)"]
-        MCPServer["MCP Tool Servers\n(SEC EDGAR, Finnhub, Alpaca)"]
-        ORM["Python ORM / Query Layer"]
-    end
-
-    subgraph ComputeExecutionLayer ["Execution & Compute Tier (Rust)"]
-        subgraph InProcess ["In-Process Binding"]
-            PyO3Ext["PyO3 / Maturin Extension\n(Heavy Math & Backtesting Engine)"]
-        end
-        subgraph DaemonProcess ["Out-of-Process Daemon (Cloud Run / GKE)"]
-            gRPCServer["gRPC Interface"]
-            StreamIngest["Live WebSocket Feed Handler"]
-            RiskEngine["Deterministic Risk Check Engine"]
-            OrderRouter["Alpaca / Exchange Execution"]
-        end
-    end
-
-    subgraph DataStorageLayer ["Storage Tier"]
-        Postgres[("Cloud SQL (PostgreSQL)\nACID Ledger, Users, Audit Logs, Vector Embeddings")]
-        GCS[("Cloud Storage (GCS)\nHistorical Parquet Market Data")]
-    end
-
-    UI -->|HTTP / SSE / WebSocket| AgentCore
-    UI -->|Market Data Stream| DaemonProcess
-    AgentCore --> MCPServer
-    AgentCore --> PyO3Ext
-    AgentCore -->|gRPC| gRPCServer
-    AgentCore --> ORM --> Postgres
-    gRPCServer --> RiskEngine --> OrderRouter
-    StreamIngest --> RiskEngine
-    DaemonProcess --> Postgres
-    PyO3Ext --> GCS
+flowchart LR
+    UI["React Research page with mock data"] -. "planned Python HTTP API" .-> Agent["Python research agent"]
+    Client["MCP client"] --> MCP["SEC MCP server"]
+    Agent --> Tools["Shared Python research tools"]
+    MCP --> Tools
+    Agent --> Gemini["Gemini"]
+    Tools -->|"Company lookup, latest filings, facts"| SEC["Live SEC EDGAR"]
+    Tools --> Retrieval["Filing retrieval"]
+    Retrieval -->|"Fetch filing on index miss"| SEC
+    Retrieval -->|"Embed queries and new filing chunks"| Gemini
+    Retrieval -->|"Read indexes and publish on misses"| CloudSQL["Cloud SQL PostgreSQL with pgvector"]
+    Importer["Standalone SEC importer"] -->|"Fetch selected SEC data"| SEC
+    Importer -->|"Store imported SEC data"| CloudSQL
 ```
 
----
+Filing retrieval uses an in-memory index when both PostgreSQL connections are unset. A configured reader can query existing indexes, and a separate scoped writer can publish indexes on cache misses. When the React Research page is connected, it will call the Python backend, which owns the database connections. [PostgreSQL setup](POSTGRESQL.md#enable-persistent-filing-retrieval)
 
-## 2. Technology Stack & Rationale
+## 2. Deferred Work
 
-### 2.1. Frontend: TypeScript + React
-* **Structural Type-Safety:** TypeScript enforces compile-time schema contracts across WebSocket and REST/gRPC-Web boundaries, preventing runtime type mismatches in financial state displays.
-* **Non-Blocking UI Concurrency:** React's concurrent rendering primitives decouple rapid market data ticks from the visual updates of streaming LLM reasoning traces, preventing browser frame drops or tab freezing.
+Rust compute, backtesting, streaming, and order execution are deferred. Revisit them if measured workloads or product requirements justify the additional components. [Original architecture](decisions/0001-polyglot-trading-platform-architecture.md) · [Python-first scope decision](decisions/0002-python-first-research-scope.md)
 
-### 2.2. Intelligence Tier: Python (Gemini SDK / ADK)
-* **Agent Ecosystem Dominance:** Python provides premier native support for advanced LLM frameworks, agent orchestration (Gemini SDK, Agent Development Kit / ADK), and Model Context Protocol (MCP) server implementations.
-* **Data Integration:** Rapid ingestion and normalization of unstructured financial texts (SEC.gov, SEC EDGAR 10-K/10-Q filings, financial news) and structured market feeds (Finnhub, Alpaca).
+## 3. Development Considerations
 
-### 2.3. Execution & Compute Tier: Rust
-* **Zero-Cost Abstractions & Memory Safety:** Eliminates garbage collection pauses and bypasses Python's Global Interpreter Lock (GIL), providing deterministic microsecond latency for execution and order validation.
-* **Deterministic Risk Invariants:** Strict ownership and affine type system guarantee that risk limits, balance verifications, and state transitions are mathematically proven at compile time.
-
-### 2.4. System of Record: PostgreSQL (Cloud SQL)
-* **Authoritative Transactional Consistency (ACID):** Centralizes user balances, order books, positions, execution fills, and immutable audit logs within transactional boundaries.
-* **Multi-Modal Capability:** Serves relational tabular data and high-dimensional vector embeddings (via `pgvector`) in a single consistent datastore, simplifying agent memory persistence.
-
-### 2.5. Market Data Lake: Google Cloud Storage (GCS) + Parquet
-* **Analytical Efficiency:** Raw tick-level and bar market data stored in columnar Apache Parquet format. Columnar compression maximizes I/O throughput when reading historical datasets during parallel Rust backtests.
+Prioritize source attribution, input validation, reliable error handling, and evaluation against real filings. Measure model and embedding cost, retrieval quality, and service performance before adding infrastructure or optimizing. Protect credentials and avoid logging sensitive data. Existing live verification and integration tasks are tracked in [AGENTS.md](../AGENTS.md#active-tasks--backlog).
 
 ---
 
-## 3. Two-Part Hybrid Architecture (Python-Rust Bridge)
+## 6. Well-Architected Development Guidance
 
-To achieve maximum performance without sacrificing agent flexibility, the Python-to-Rust bridge is divided into two distinct communication paths:
+The [Google Cloud Well-Architected Framework](https://docs.cloud.google.com/architecture/framework) guides the design, implementation, and operation of this platform. These are design objectives, not claims that the proposed infrastructure or controls already exist. Apply the relevant [project skills](../AGENTS.md#google-cloud-well-architected-framework) to each meaningful change, balancing the pillars against the research system's security, reliability, and cost requirements.
 
-### 3.1. In-Process Compute via PyO3 & Maturin
-* **Use Case:** High-throughput numerical calculations, portfolio optimization, historical simulations, and multi-asset backtesting.
-* **Mechanics:** Rust code compiles into a native CPython extension module (`.so` / `.pyd`) using `maturin` and `PyO3`. Python agents call Rust quantitative functions directly with zero inter-process network overhead. Memory buffers are shared via zero-copy arrow/numpy representations where applicable.
+* **Operational excellence:** Automate repeatable builds and deployments; define observable service health, actionable alerts, and recovery procedures. Avoid logging secrets or unnecessary sensitive data.
+* **Security, privacy, and compliance:** Limit access to each service and role, protect credentials and research data in transit and at rest, and validate tool inputs and external data. Define audit and retention policies before a shared deployment.
+* **Reliability:** Define availability and recovery objectives for each service. Test backups, restoration, reconnects, and failure handling for SEC calls, model requests, and database writes.
+* **Cost optimization:** Measure model, embedding, storage, database, and compute usage; right-size resources and set budgets appropriate to the workload. Evaluate savings against reliability and latency needs.
+* **Performance optimization:** Set and measure latency, throughput, and capacity targets under representative workloads. Profile bottlenecks, including model and network calls, before optimizing.
+* **Sustainability:** Reduce unnecessary computation, model calls, data transfer, and storage; consider regional carbon impact alongside latency, resilience, and data requirements.
 
-### 3.2. Out-of-Process Daemon via gRPC
-* **Use Case:** Live exchange connectivity, streaming WebSocket feeds, deterministic order validation, and live broker execution.
-* **Mechanics:** The execution engine runs as an independent daemon. The Python agent orchestrator sends trade intents over low-latency gRPC (Protocol Buffers). The daemon validates deterministic risk checks against active state and submits orders directly to broker endpoints (e.g., Alpaca API).
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant UI as React Client
-    participant Agent as Python Agent (Cloud Run)
-    participant Engine as Rust In-Process (PyO3)
-    participant Daemon as Rust Daemon (gRPC)
-    participant DB as PostgreSQL
-    participant Broker as Alpaca / Exchange
-
-    UI->>Agent: Request Backtest Strategy
-    Agent->>Engine: Run Backtest (Native Call)
-    Engine->>Agent: Return Vector Metrics & PnL
-    Agent->>UI: Stream Analysis & Decision
-
-    UI->>Agent: Approve Trade Thesis
-    Agent->>Daemon: Submit Order Intent (gRPC)
-    Daemon->>Daemon: Execute Deterministic Risk Check
-    Daemon->>Broker: Route Order
-    Broker-->>Daemon: Fill Confirmation
-    Daemon->>DB: Persist Transaction (ACID Commit)
-    Daemon-->>Agent: Order Placed Notification
-    Daemon-->>UI: Real-Time Execution Event
-```
-
----
-
-## 4. Google Cloud Platform (GCP) Deployment Topology
-
-The platform architecture is designed natively for Google Cloud infrastructure:
-
-* **Static Frontend:** React single-page application built as static artifacts, deployed to Google Cloud Storage and distributed globally via Google Cloud CDN with Cloud Armor protection.
-* **Serverless Agent Services (Cloud Run):** Python agent orchestrators and MCP servers operate as containerized Cloud Run services, scaling horizontally on incoming requests or event triggers.
-* **Compute-Heavy Jobs (Cloud Run Jobs):** Parallelized, large-scale Rust backtesting simulations run as ephemeral Cloud Run Jobs with dedicated CPU/memory allocations.
-* **Persistent Daemon (Cloud Run / GKE / Compute Engine):** The Rust execution and WebSocket ingestion daemon runs in an always-on container environment (Cloud Run with min-instances=1 or GKE) to maintain unbroken exchange WebSocket streams.
-* **Managed Database (Cloud SQL for PostgreSQL):** Highly available PostgreSQL instance managing transactional tables and vector embeddings.
-* **Secrets & Build Pipelines:** Google Cloud Secret Manager manages API keys (SEC, Finnhub, Alpaca, Gemini), while Cloud Build drives polyglot CI/CD pipelines compiling Rust binaries and Docker containers.
-
----
-
-## 5. Security, State, and Operational Invariants
-
-1. **Deterministic Risk Pre-Checks:** No order generated by an AI agent reaches a broker without passing through Rust's deterministic validation engine (checking margin requirements, portfolio concentration, maximum drawdown, and symbol allowances).
-2. **Comprehensive Agent Auditability:** Every prompt, tool invocation, intermediate reasoning state, and resulting execution order is committed to PostgreSQL with a cryptographic timestamp and agent identifier.
-3. **Strict Separation of Concerns:** Python agents propose trades; Rust execution engines validate and place trades. The AI layer cannot bypass Rust risk controls.
+For significant changes, record decisions, assumptions, trade-offs, and verification in an ADR or worklog. Establish service-level objectives, recovery targets, and security controls as the relevant services are built and validated.

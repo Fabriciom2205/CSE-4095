@@ -2,11 +2,12 @@
 
 Verifies that the intelligence tier is ready to run: Python version, installed
 dependencies, .env configuration, module imports, agent and MCP server wiring,
-and (unless --offline) live connectivity to SEC EDGAR and the Gemini API.
+and (unless --offline) live connectivity to SEC EDGAR, Gemini, and configured PostgreSQL.
 
 Usage:
     python init.py              # full check, including live API calls
     python init.py --offline    # skip all network checks
+    python init.py --postgres TICKER  # require PostgreSQL and search a real filing
 
 Exits with status 1 if any check fails, so it can gate CI or container startup.
 """
@@ -28,7 +29,7 @@ sys.path.insert(0, str(BRAIN_DIR))
 # google-genai 3.x requires Python 3.11+
 MIN_PYTHON = (3, 11)
 BRAIN_MODULES = ["sec_client", "filing_rag", "agent", "mcp_server"]
-REQUIRED_ENV = ["GEMINI_API_KEY", "SEC_USER_AGENT"]
+REQUIRED_ENV = ["GOOGLE_CLOUD_PROJECT", "SEC_USER_AGENT"]
 # Declared in .env.example for other tiers; python-brain does not read them yet
 FUTURE_ENV = ["FINNHUB_API_KEY", "ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY", "DATABASE_URL"]
 
@@ -36,15 +37,12 @@ PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
 _results = []
 
 
-def _gemini_key() -> str:
-    return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
-
-
 def _redact(text: str) -> str:
-    """Strips the Gemini API key from error text and truncates long API error payloads."""
-    key = _gemini_key()
-    if key:
-        text = text.replace(key, "***")
+    """Removes legacy API keys from error text and truncates long payloads."""
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        key = os.getenv(name)
+        if key:
+            text = text.replace(key, "***")
     text = " ".join(text.split())
     return text if len(text) <= 240 else text[:237] + "..."
 
@@ -99,7 +97,7 @@ def _read_requirements() -> list[tuple[str, str]]:
         if not line:
             continue
         name, _, min_version = line.partition(">=")
-        requirements.append((name.strip(), min_version.strip()))
+        requirements.append((name.partition("[")[0].strip(), min_version.strip()))
     # shortcut: only understands `>=` pins, upgrade to packaging.requirements if other specifiers are added
     return requirements
 
@@ -124,8 +122,6 @@ def _placeholder_values() -> dict:
 
 def check_env_var(name: str, placeholders: dict):
     value = os.getenv(name, "")
-    if name == "GEMINI_API_KEY" and not value and os.getenv("GOOGLE_API_KEY"):
-        return PASS, "not set, using GOOGLE_API_KEY instead"
     if not value:
         if name == "SEC_USER_AGENT":
             return WARN, "not set; sec_client falls back to its built-in default contact"
@@ -167,8 +163,8 @@ def check_mcp_registration():
 
 
 def check_agent_construction():
-    if not _gemini_key():
-        return SKIP, "no Gemini API key"
+    if not os.getenv("GOOGLE_CLOUD_PROJECT"):
+        return SKIP, "no Google Cloud project"
     import agent
     chat = agent.create_sec_agent()
     return (PASS, "") if chat is not None else (FAIL, "create_sec_agent() returned None")
@@ -206,38 +202,66 @@ def check_sec_financial_facts():
 
 
 def check_gemini_embeddings():
-    if not _gemini_key():
-        return SKIP, "no Gemini API key"
-    from google import genai
+    if not os.getenv("GOOGLE_CLOUD_PROJECT"):
+        return SKIP, "no Google Cloud project"
+    import google_client
     import filing_rag
-    client = genai.Client(api_key=_gemini_key(), http_options={"api_version": "v1beta"})
-    try:
-        resp = client.models.embed_content(model=filing_rag.DEFAULT_EMBEDDING_MODEL, contents=["health check"])
-        return PASS, f"{filing_rag.DEFAULT_EMBEDDING_MODEL}, {len(resp.embeddings[0].values)} dimensions"
-    except Exception as primary_error:
-        # filing_rag silently falls back, so surface which model actually serves embeddings
-        resp = client.models.embed_content(model=filing_rag.FALLBACK_EMBEDDING_MODEL, contents=["health check"])
-        return WARN, (
-            f"{filing_rag.DEFAULT_EMBEDDING_MODEL} failed ({_describe(primary_error)}); "
-            f"fallback {filing_rag.FALLBACK_EMBEDDING_MODEL} works"
-        )
+    client = google_client.create_client()
+    resp = client.models.embed_content(
+        model=filing_rag.DEFAULT_EMBEDDING_MODEL, contents=["health check"],
+        config={"output_dimensionality": filing_rag.EMBEDDING_DIMENSIONS},
+    )
+    dimensions = len(resp.embeddings[0].values)
+    if dimensions != filing_rag.EMBEDDING_DIMENSIONS:
+        return FAIL, f"expected {filing_rag.EMBEDDING_DIMENSIONS} dimensions, got {dimensions}"
+    return PASS, f"{filing_rag.DEFAULT_EMBEDDING_MODEL}, {dimensions} dimensions"
 
 
 def check_agent_chat():
-    if not _gemini_key():
-        return SKIP, "no Gemini API key"
+    if not os.getenv("GOOGLE_CLOUD_PROJECT"):
+        return SKIP, "no Google Cloud project"
     import agent
     chat = agent.create_sec_agent()
-    # Validates the API key, the chat model, and that Gemini accepts every tool declaration
+    # Validates ADC, the chat model, and that Gemini accepts every tool declaration
     resp = chat.send_message("Health check: reply with the single word OK. Do not call any tools.")
     if not resp.text:
         return FAIL, "empty response from Gemini"
     return PASS, f"model replied {resp.text.strip()[:20]!r}"
 
 
+def check_postgres(ticker=None):
+    import numpy as np
+    import filing_rag
+    import filing_store
+
+    read_dsn = os.getenv("SEC_RAG_READ_DSN")
+    if not read_dsn:
+        if ticker or os.getenv("SEC_RAG_WRITE_DSN"):
+            return FAIL, "set SEC_RAG_READ_DSN for PostgreSQL filing retrieval"
+        return SKIP, "SEC_RAG_READ_DSN unset; filing retrieval uses memory"
+
+    key = ("0000000001", "0000000001-00-000001", "readiness.htm", "business",
+           filing_rag.DEFAULT_EMBEDDING_MODEL, filing_rag.EMBEDDING_DIMENSIONS,
+           filing_rag.CHUNK_VERSION)
+    filing_store.find_index(read_dsn, key)
+    vector = np.zeros(filing_rag.EMBEDDING_DIMENSIONS, dtype=np.float32)
+    vector[0] = 1.0
+    filing_store.search_index(read_dsn, 0, vector, 1)
+    if ticker is None:
+        return PASS, "filing index and vector queries available through the reader"
+
+    import agent
+    result = agent.sec_query_filing_rag(ticker, "What does this company do?", section="business", top_k=1)
+    if not result["data"]["excerpts"].startswith("[Excerpt 1 |"):
+        return FAIL, "the PostgreSQL filing search returned no excerpts"
+    return PASS, f"agent filing tool retrieved a PostgreSQL excerpt for {result['data']['ticker']}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="The Monroe Fund - python-brain health check")
-    parser.add_argument("--offline", action="store_true", help="skip SEC EDGAR and Gemini network checks")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--offline", action="store_true", help="skip all network checks")
+    mode.add_argument("--postgres", metavar="TICKER", help="require PostgreSQL and search the latest 10-K")
     args = parser.parse_args()
     # Silence per-request httpx / google-genai INFO logs so only check results are printed
     logging.disable(logging.INFO)
@@ -269,6 +293,7 @@ def main() -> int:
     if args.offline:
         print("  [SKIP] --offline set")
     else:
+        _run("PostgreSQL filing retrieval", check_postgres, args.postgres)
         _run("SEC company tickers", check_sec_cik_lookup)
         _run("SEC full-text search", check_sec_full_text_search)
         _run("SEC XBRL financial facts", check_sec_financial_facts)
