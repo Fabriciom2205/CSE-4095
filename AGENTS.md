@@ -58,7 +58,7 @@ Before closing your turn or concluding a task:
 
 Use this checklist for handoffs between agents. Keep it up to date.
 
-* [x] Document the active Python research workflow and defer Rust components in the [README](README.md), [architecture diagram](docs/ARCHITECTURE.md#1-near-term-scope), and [Python-first scope decision](docs/decisions/0002-python-first-research-scope.md)
+* [x] Document the active Python research workflow and defer Rust components in the [README architecture overview](README.md#architecture-overview), [detailed architecture](docs/ARCHITECTURE.md#1-near-term-scope), and [Python-first scope decision](docs/decisions/0002-python-first-research-scope.md)
 * [x] Implement SEC EDGAR search and in-memory vector RAG agent in [python-brain/](python-brain/)
 * [x] Configure environment variables (.env, .env.example) and update project branding to The Monroe Fund
 * [x] Implement Model Context Protocol (MCP) server for SEC EDGAR tools in [python-brain/mcp_server.py](python-brain/mcp_server.py)
@@ -101,6 +101,7 @@ Keep a reverse-chronological list of session notes here. Whenever you create a n
 
 | Date | Topic / Session | Note Link | Contributors / Agent |
 | :--- | :--- | :--- | :--- |
+| 2026-11-17 | README architecture diagram | [docs/notes/2026-11-17-readme-architecture-diagram.md](docs/notes/2026-11-17-readme-architecture-diagram.md) | Codex |
 | 2026-11-17 | Security and PostgreSQL release handoff | [docs/notes/2026-11-17-security-postgresql-release.md](docs/notes/2026-11-17-security-postgresql-release.md) | Codex |
 | 2026-11-17 | Local backend and Cloud SQL setup guide | [docs/notes/2026-11-17-local-cloud-sql-setup-guide.md](docs/notes/2026-11-17-local-cloud-sql-setup-guide.md) | Codex |
 | 2026-11-17 | Python research architecture documentation | [docs/notes/2026-11-17-python-research-architecture-docs.md](docs/notes/2026-11-17-python-research-architecture-docs.md) | Codex |

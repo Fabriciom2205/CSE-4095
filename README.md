@@ -6,7 +6,21 @@ The Monroe Fund is a Python-first financial research project. Its Gemini agent u
 
 ## Architecture Overview
 
-The agent and MCP tools resolve current filings and fetch financial facts from SEC EDGAR. Cloud SQL for PostgreSQL stores filing excerpts and pgvector embeddings for reuse. When a filing index is missing, a writer-enabled backend fetches the filing from EDGAR and builds the index. [Architecture diagram](docs/ARCHITECTURE.md#1-near-term-scope) · [PostgreSQL setup](docs/POSTGRESQL.md)
+The agent and MCP tools resolve current filings and fetch financial facts from SEC EDGAR. Cloud SQL for PostgreSQL stores filing excerpts and pgvector embeddings for reuse. When a filing index is missing, a writer-enabled backend fetches the filing from EDGAR and builds the index.
+
+```mermaid
+flowchart TD
+    React["React Research page (mock data)"] -.->|Planned HTTP API| Agent["Python research agent"]
+    Client["MCP client"] --> Server["SEC MCP server"]
+    Agent --> Tools["Shared Python research tools"]
+    Server --> Tools
+    Agent -->|Generate answers| Gemini["Gemini"]
+    Tools -->|Live filings and facts| SEC["SEC EDGAR"]
+    Tools -->|Generate embeddings| Gemini
+    Tools -->|Read or build filing indexes| SQL["Cloud SQL PostgreSQL + pgvector"]
+```
+
+[Detailed architecture](docs/ARCHITECTURE.md#1-near-term-scope) · [PostgreSQL setup](docs/POSTGRESQL.md)
 
 | Area | Current focus / direction |
 | :--- | :--- |
