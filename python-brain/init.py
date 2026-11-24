@@ -13,7 +13,6 @@ Exits with status 1 if any check fails, so it can gate CI or container startup.
 """
 
 import os
-import re
 import sys
 import asyncio
 import logging
@@ -22,26 +21,28 @@ import importlib
 from importlib import metadata
 from pathlib import Path
 
+from packaging.requirements import Requirement
+
 BRAIN_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BRAIN_DIR.parent
 sys.path.insert(0, str(BRAIN_DIR))
 
-# google-genai 3.x requires Python 3.11+
+# The backend requires Python 3.11+.
 MIN_PYTHON = (3, 11)
-BRAIN_MODULES = ["sec_client", "filing_rag", "market_data", "agent", "mcp_server"]
+BRAIN_MODULES = ["sec_client", "filing_rag", "market_data", "alpaca_client", "risk", "strategy", "backtest", "agent", "mcp_server", "adk_runtime", "api"]
 REQUIRED_ENV = ["GOOGLE_CLOUD_PROJECT", "SEC_USER_AGENT"]
 # Optional: without a key, only that provider's market data tools are unavailable
 MARKET_DATA_KEYS = {"massive": "MASSIVE_API_KEY", "finnhub": "FINNHUB_API_KEY"}
 # Declared in .env.example for other tiers; python-brain does not read them yet
-FUTURE_ENV = ["ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY", "DATABASE_URL"]
+FUTURE_ENV = ["DATABASE_URL"]
 
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
 _results = []
 
 
 def _redact(text: str) -> str:
-    """Removes legacy API keys from error text and truncates long payloads."""
-    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
+    """Redact API credentials from error text and truncate long payloads."""
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY"):
         key = os.getenv(name)
         if key:
             text = text.replace(key, "***")
@@ -66,10 +67,6 @@ def _run(name: str, check, *args):
     print(f"  [{status}] {name}" + (f" - {_redact(detail)}" if detail else ""))
 
 
-def _version_tuple(version: str) -> tuple:
-    return tuple(int(part) for part in re.findall(r"\d+", version)[:3])
-
-
 # ------------------------------------------------------------------------------
 # Environment checks
 # ------------------------------------------------------------------------------
@@ -81,27 +78,20 @@ def check_python_version():
     return PASS, f"Python {current} ({sys.executable})"
 
 
-def check_dependency(package: str, min_version: str):
+def check_dependency(requirement: Requirement):
     try:
-        installed = metadata.version(package)
+        installed = metadata.version(requirement.name)
     except metadata.PackageNotFoundError:
         return FAIL, "not installed (run: pip install -r requirements.txt)"
-    if min_version and _version_tuple(installed) < _version_tuple(min_version):
-        return FAIL, f"{installed} installed, >={min_version} required"
+    if not requirement.specifier.contains(installed):
+        return FAIL, f"{installed} installed, {requirement.specifier} required"
     return PASS, installed
 
 
-def _read_requirements() -> list[tuple[str, str]]:
-    """Parses `name>=version` lines from requirements.txt."""
-    requirements = []
-    for line in (BRAIN_DIR / "requirements.txt").read_text().splitlines():
-        line = line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        name, _, min_version = line.partition(">=")
-        requirements.append((name.partition("[")[0].strip(), min_version.strip()))
-    # shortcut: only understands `>=` pins, upgrade to packaging.requirements if other specifiers are added
-    return requirements
+def _read_requirements() -> list[Requirement]:
+    lines = (BRAIN_DIR / "requirements.txt").read_text().splitlines()
+    entries = [line.split("#", 1)[0].strip() for line in lines]
+    return [Requirement(entry) for entry in entries if entry]
 
 
 def check_env_file():
@@ -226,6 +216,15 @@ def check_finnhub():
     return PASS, f"finnhub.io reachable, AAPL quote {quote['price']} as of {quote['as_of']}"
 
 
+def check_alpaca():
+    import alpaca_client
+
+    if not alpaca_client.credentials_configured():
+        return SKIP, "Alpaca credentials are unset"
+    alpaca_client.get_account()
+    return PASS, "Alpaca account endpoint reachable"
+
+
 def check_gemini_embeddings():
     if not os.getenv("GOOGLE_CLOUD_PROJECT"):
         return SKIP, "no Google Cloud project"
@@ -259,11 +258,11 @@ def check_postgres(ticker=None):
     import filing_rag
     import filing_store
 
-    read_dsn = os.getenv("SEC_RAG_READ_DSN")
+    read_dsn = os.getenv("SEC_RAG_READ_DSN") or os.getenv("SEC_DB_READ_DSN")
     if not read_dsn:
         if ticker or os.getenv("SEC_RAG_WRITE_DSN"):
-            return FAIL, "set SEC_RAG_READ_DSN for PostgreSQL filing retrieval"
-        return SKIP, "SEC_RAG_READ_DSN unset; filing retrieval uses memory"
+            return FAIL, "set SEC_RAG_READ_DSN or SEC_DB_READ_DSN for PostgreSQL filing retrieval"
+        return SKIP, "PostgreSQL reader DSN unset; filing retrieval uses memory"
 
     key = ("0000000001", "0000000001-00-000001", "readiness.htm", "business",
            filing_rag.DEFAULT_EMBEDDING_MODEL, filing_rag.EMBEDDING_DIMENSIONS,
@@ -295,8 +294,8 @@ def main() -> int:
 
     print("Environment")
     _run("Python version", check_python_version)
-    for package, min_version in _read_requirements():
-        _run(f"Package {package}", check_dependency, package, min_version)
+    for requirement in _read_requirements():
+        _run(f"Package {requirement.name}", check_dependency, requirement)
     if FAIL in _results:
         print("\nMissing dependencies; install them before running the remaining checks.")
         return 1
@@ -326,6 +325,7 @@ def main() -> int:
         _run("SEC XBRL financial facts", check_sec_financial_facts)
         _run("Massive previous close", check_massive)
         _run("Finnhub quote", check_finnhub)
+        _run("Alpaca account", check_alpaca)
         _run("Gemini embeddings", check_gemini_embeddings)
         _run("Gemini agent chat", check_agent_chat)
 

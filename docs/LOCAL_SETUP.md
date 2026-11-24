@@ -1,6 +1,6 @@
 # Local setup and database testing
 
-This walkthrough runs the Python backend on your machine against the existing project Cloud SQL database. You can test the database and agent from a terminal without running the React frontend. To provision a separate database or apply migrations, use the [PostgreSQL administration guide](POSTGRESQL.md).
+This walkthrough runs the Python backend on your machine against the existing project Cloud SQL database. You can test the database and agent from a terminal. To provision a separate database or apply migrations, use the [PostgreSQL administration guide](POSTGRESQL.md).
 
 ## 1. Install the tools and Python dependencies
 
@@ -80,6 +80,83 @@ python -c 'from agent import sec_query_filing_rag; print(sec_query_filing_rag("M
 
 SEC_RAG_WRITE_DSN='' python -c 'from agent import sec_query_filing_rag; print(sec_query_filing_rag("MSFT", "What drove changes in operating income this quarter?", form="10-Q", section="mda")["data"]["excerpts"])'
 ```
+
+## Portfolio and strategy tools
+
+For Alpaca, set `ALPACA_API_KEY_ID` and `ALPACA_API_SECRET_KEY` in your local environment or repository `.env`. The default `ALPACA_BASE_URL` points to paper accounts. Launch Python from `python-brain/` to use the client:
+
+```python
+from alpaca_client import get_account, get_orders, get_positions
+
+account = get_account()
+positions = get_positions()
+orders = get_orders(status="all", limit=50)
+```
+
+Positions include quantity, market value, cost basis, and unrealized profit or loss as decimal values when reported. Short quantity and market value are signed. Orders are a bounded page of recent order records. The portfolio tables are provisioned separately. The client returns data to the caller without persisting it. [Portfolio schema](POSTGRESQL.md#portfolio-schema)
+
+To backtest an example over twelve months, set `MASSIVE_API_KEY` and run the following from the repository root. Keep the snapshot and result together to reproduce the run.
+
+```bash
+python python-brain/backtest.py capture 2025-01-01 2025-12-31 SPY > bars.json
+python python-brain/backtest.py replay bars.json > result.json
+```
+
+The example uses a fixed universe, a 20-session moving average, a 25% allocation, and a 10% stop evaluated at the close. Orders generated at a close attempt to fill at the next session's open. The output contains the snapshot hash, fills, closing equity, and drawdown. The replay uses raw daily bars, and capture rejects windows with splits or stock dividends. It assumes the supplied universe was chosen before the window. It models neither cash distributions nor execution costs.
+
+## Portfolio proposals
+
+Use `agent.generate_proposal(prompt, limits=..., peak_equity=...)` from a trusted local Python caller. Supply `risk.RiskLimits` and a positive `Decimal` peak from your account's equity history. Current equity can increase that peak. The proposal session sends equity, the peak, and signed market values to the configured model. The regular research agent and MCP server do not expose these private tools.
+
+The schema accepts up to ten distinct symbols with combined target weights at most one. Each target includes a rationale, SEC accessions, a market timestamp with timezone, and confidence. Validation checks the projected dollar exposure of each named target and retains unlisted holdings. It measures the largest hypothetical dollar change for the order notional cap. A configured sector cap produces an explicit error until sector data is available. Findings do not authorize trades.
+
+`propose.build_orders` is a separate pure helper that sizes hypothetical whole-share buys from cash. The agent does not call it or receive its quantities.
+
+### Audited paper execution runbook
+
+**Pre-market.** Apply [migration 004 and the portfolio grants](POSTGRESQL.md#audited-paper-execution). Set `MONROE_PORTFOLIO_DSN` for the shared execution database and confirm `ALPACA_BASE_URL=https://paper-api.alpaca.markets`. Configure positive name, gross, order, drawdown, daily count, and daily notional caps in `portfolio.risk_limit`. Sector caps are unsupported and block execution if configured. Seed equity history from verified observations for that account. Operators starting a new tracking interval can deliberately record the current broker observation with `portfolio_agent.py --record-equity`. A baseline recorded today does not recover an earlier peak.
+
+**During the session.** Proposal mode remains the default. Execution accepts only database limits and peak equity. Choose a stable decision key and reuse the exact symbol and prompt on every retry:
+
+```bash
+.venv/bin/python python-brain/portfolio_agent.py --execute-paper --symbol NVDA \
+  --decision-key paper-check-001 "Evaluate NVDA for a paper target"
+```
+
+One shared PostgreSQL account lock serializes executions and reconciliation. Unsettled intents and open broker orders block additional submissions. The daily ledger counts all reserved intents and their limit notionals from midnight New York time, including ambiguous or rejected attempts. Keep other writers off the dedicated paper account during a run. A repeated key returns the original result without calling the model or broker again.
+
+**Halt.** Set `MONROE_EXECUTION_HALT=1` in the runner environment before launching commands. This blocks new runs before provider requests. Stop any already running command separately because environment changes do not propagate to it. Cancel an accepted order in Alpaca if needed. This CLI has no cancel or amend command.
+
+**Post-session.** Run the read-only broker reconciliation command or schedule that command alone on an operator-controlled timer:
+
+```bash
+.venv/bin/python python-brain/portfolio_agent.py --reconcile
+```
+
+Compare `portfolio.trade` activity IDs and quantities with Alpaca. A terminal order stays unsettled until its recorded fills match the broker's filled quantity. A confirmed 404 can close an unacknowledged intent after 24 hours. An acknowledged order that disappears stays unresolved. An ambiguous submission returns the client order ID and is never retried. [Order lookup](https://docs.alpaca.markets/us/reference/getorderbyclientorderid) · [Fill activity API](https://docs.alpaca.markets/us/reference/getaccountactivitiesbyactivitytype-1)
+
+## Phase 5 HTTP API
+
+Install the repository requirements into the virtual environment. ADK uses the same Google Cloud project and Application Default Credentials as the existing Gemini tools. Configure these settings in the server environment or your local `.env`:
+
+| Setting | Purpose |
+| --- | --- |
+| `MONROE_API_TOKEN` | A random bearer token you generate. Clients send it in the Authorization header. |
+| `MONROE_SESSION_DSN` | An async SQLAlchemy connection URL for a dedicated PostgreSQL session database, for example `postgresql+asyncpg://monroe_sessions@127.0.0.1:5433/monroe_sessions`. ADK initializes its own tables in that database. SQLite file URLs with `sqlite+aiosqlite` work for local evaluation. Create the database file’s parent directory first. |
+| `MONROE_SNAPSHOT_DIR` | Optional directory of saved backtest JSON files. The default is `snapshots` relative to the server working directory. |
+| `MONROE_PEAK_EQUITY` | Required only if a proposal requests a drawdown cap. Supply the trusted historical peak for the Alpaca account. |
+
+From the repository root:
+
+```bash
+.venv/bin/python -m uvicorn api:app --app-dir python-brain --host 127.0.0.1 --port 8000
+```
+
+Open `http://127.0.0.1:8000/docs` or fetch `/openapi.json` for the typed contract. Application routes are bearer protected. The health route only checks configuration. Keep this single-operator service on loopback for local development. Use TLS for any remote deployment.
+
+`POST /research` creates a session or continues a returned `session_id`. Send `Accept: text/event-stream` to receive answer deltas and a final event containing the same object as the JSON response. Keep the session ID between turns. `POST /proposals` takes `tickers` and `constraints`, returns validated targets and breach findings, and uses a separate session namespace. Its Alpaca inputs are cached for up to 15 seconds. Alpaca mark freshness is reported as unknown and dated Finnhub quotes older than two minutes are marked stale. Execution remains outside the HTTP API.
+
+To run a backtest, capture an input using the replay CLI above into this directory, for example `snapshots/spy-2025.json`. The request uses the ID `spy-2025` with the strategy settings. The server does not accept a filesystem path.
 
 ## Common setup failures
 

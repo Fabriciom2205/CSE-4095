@@ -6,6 +6,8 @@ MCP tools, resources, and prompts for external agents, IDEs, and orchestrators.
 """
 
 import sys
+import os
+from datetime import date
 import json
 import re
 from functools import wraps
@@ -30,7 +32,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 import sec_client
+import sec_statements
 import filing_rag
+import filing_sections
+import filing_store
 from filing_store import FilingStoreError
 import google_client
 import market_data
@@ -109,6 +114,29 @@ def sec_cik_lookup(company_name_or_ticker: str) -> str:
     return cik
 
 
+@mcp.tool(annotations=READ_ONLY, structured_output=True)
+@tool_errors
+def sec_filings(cik: str, form: str = "", since: str = "", limit: int = 20) -> UntrustedResult:
+    """List a filer's submissions with filing dates, report dates, and document links.
+    Optionally filter by an exact form (such as 8-K, DEF 14A, or 4) and an inclusive filing date.
+    """
+    return untrusted_data(sec_client.filing_timeline(cik, form, since, limit))
+
+
+@mcp.tool(annotations=READ_ONLY, structured_output=True)
+@tool_errors
+def sec_filing_section(cik: str, accession_number: str, filename: str, form: str, section: str) -> UntrustedResult:
+    """Read an exact linked 10-K Item (1, 1A, 7, 7A or 8) or 10-Q Part (I or II) without embeddings."""
+    return untrusted_data(filing_sections.filing_section(cik, accession_number, filename, form, section))
+
+
+@mcp.tool(annotations=READ_ONLY, structured_output=True)
+@tool_errors
+def sec_risk_factor_diff(cik: str) -> UntrustedResult:
+    """Compare Item 1A in the latest two original 10-Ks. Returns added and removed text with both citations."""
+    return untrusted_data(filing_sections.risk_factor_diff(cik))
+
+
 @mcp.tool(
     annotations=READ_ONLY,
     name="sec_full_text_search",
@@ -120,7 +148,7 @@ def sec_cik_lookup(company_name_or_ticker: str) -> str:
 )
 @tool_errors
 def sec_full_text_search(query: str, form_type: str = "10-K", start_date: str = "") -> UntrustedResult:
-    """Searches SEC EDGAR EFTS API for keywords across filings."""
+    """Discover which SEC filings mention a phrase. Returns filing identifiers for follow-up retrieval."""
     return untrusted_data(sec_client.tool_full_text_search(query=query, form_type=form_type, start_date=start_date))
 
 
@@ -137,19 +165,45 @@ def sec_fetch_filing_text(cik: str, accession_number: str, filename: str) -> Unt
                            "excerpt": filing_excerpt(cik, accession_number, filename)})
 
 
-@mcp.tool(
-    annotations=READ_ONLY,
-    name="sec_get_financial_facts",
-    structured_output=True,
-    description=(
-        "Retrieves structured, audited US-GAAP or IFRS financial facts (e.g. 'Revenues', 'NetIncomeLoss', 'Assets', 'OperatingIncomeLoss') "
-        "directly from data.sec.gov for a company CIK. Completely eliminates third-party vendor acquisition costs and aggregation lag."
-    )
-)
+@mcp.tool(annotations=READ_ONLY, structured_output=True)
 @tool_errors
 def sec_get_financial_facts(cik: str, concept: str) -> UntrustedResult:
-    """Retrieves structured XBRL financial facts (GAAP/IFRS) from data.sec.gov for a company CIK."""
-    return untrusted_data(sec_client.tool_get_financial_facts(cik=cik, concept=concept))
+    """Get reported numeric XBRL observations for a CIK and exact concept, grouped by unit."""
+    return untrusted_data(sec_statements.get_financial_facts(cik, concept))
+
+
+@mcp.tool(annotations=READ_ONLY, structured_output=True)
+@tool_errors
+def sec_company_statement(cik: str, statement: str, period_end: str,
+                          period: str = "annual", currency: str = "USD") -> UntrustedResult:
+    """Get core balance_sheet, income_statement, or cash_flow lines for an exact fiscal end date.
+    Use annual, quarter (Q1–Q3 standalone), or q4 (derived from FY and 9M).
+    """
+    return untrusted_data(sec_statements.company_statement(cik, statement, period_end, period, currency))
+
+
+@mcp.tool(annotations=READ_ONLY, structured_output=True)
+@tool_errors
+def sec_relations(cik: str, predicate: str, as_of: str = "") -> UntrustedResult:
+    """Look up stored SEC relationships and dimensions by CIK and filing date cutoff.
+    Examples: audited_by, has_subsidiary, revenue_segment, revenue_geography, reports_metric.
+    Results are historical assertions. Empty results do not establish absence.
+    """
+    cik = sec_client._validate_cik(cik)
+    if not re.fullmatch(r"[a-z_]{1,40}", predicate):
+        raise ValueError("Invalid relationship predicate")
+    cutoff = date.fromisoformat(as_of) if as_of else date.today()
+    dsn = os.getenv("SEC_DB_READ_DSN") or os.getenv("SEC_RAG_READ_DSN")
+    if not dsn:
+        raise ValueError("Stored SEC relationship data is unavailable")
+    rows = filing_store.query_relations(dsn, cik, predicate, cutoff)
+    fields = ("predicate", "object", "object_kind", "object_cik", "dimension", "taxonomy", "concept",
+              "value", "unit", "period_start", "period_end", "accession", "filed_at", "reported_in")
+    return untrusted_data({
+        "cik": cik, "as_of": cutoff.isoformat(), "truncated": len(rows) > 50,
+        "observations": [dict(zip(fields, (str(v) if v is not None else None for v in row), strict=True))
+                         for row in rows[:50]],
+    })
 
 
 @mcp.tool(

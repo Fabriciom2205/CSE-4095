@@ -10,9 +10,8 @@ The agent and MCP tools resolve current filings and fetch financial facts from S
 
 ```mermaid
 flowchart TD
-    React["React Research page (mock data)"] -.->|Planned HTTP API| Agent["Python research agent"]
     Client["MCP client"] --> Server["SEC MCP server"]
-    Agent --> Tools["Shared Python research tools"]
+    Agent["Python research agent"] --> Tools["Shared Python research tools"]
     Server --> Tools
     Agent -->|Generate answers| Gemini["Gemini"]
     Tools -->|Live filings and facts| SEC["SEC EDGAR"]
@@ -27,10 +26,11 @@ flowchart TD
 | **Python brain** | Agent workflows, financial search and aggregation, SEC filings, retrieval, and AI-generated research. |
 | **MCP** | Expose financial data and research tools to agents through MCP. |
 | **Data sources** | SEC EDGAR, Massive (daily prices and company details), and Finnhub (quotes, news, metrics, and earnings dates). Alpaca is a potential integration. |
-| **Frontend** | React + TypeScript research interface; currently mock data. |
 | **Storage** | Cloud SQL filing retrieval is live and verified. A standalone importer can also store selected SEC data. |
 
-Rust compute, backtesting, and execution are deferred. [Python-first scope decision](docs/decisions/0002-python-first-research-scope.md)
+The portfolio backend can read Alpaca positions, evaluate deterministic risk limits, and replay a strategy over Massive daily bars. [Portfolio and replay setup](docs/LOCAL_SETUP.md#portfolio-and-strategy-tools)
+
+The final frontend will follow the backend. Rust compute and live execution are deferred. [Python-first scope decision](docs/decisions/0002-python-first-research-scope.md)
 
 ---
 
@@ -65,21 +65,6 @@ SEC filings, search results, financial facts, and tool errors are untrusted inpu
 The two filing research tools may insert a derived index when a PostgreSQL writer is configured. The other MCP tools are annotated read-only. Database grants control access. Research tools send requests and query parameters to SEC services, and filing retrieval sends filing chunks and questions to Google's embedding service. Agent prompts, tool results, and conversation content are sent to the configured Google model service. Avoid entering secrets or sensitive personal information until suitable privacy and access controls are in place. Agent tool results are cached for the chat lifetime.
 
 HTTP/SSE binds to `127.0.0.1` by default. The server does not implement application authentication or per-user authorization; before remote or multi-user deployment, add and verify authentication, authorization, TLS, network restrictions, rate limits, and appropriate service-account permissions. Do not rely on localhost binding or MCP tool annotations as a complete security boundary.
-
----
-
-## Frontend (React + TypeScript)
-
-The web client lives in [`frontend/`](frontend/) (Vite, React 18, TypeScript, CSS Modules, Recharts, lucide-react). It currently runs on typed mock data behind [`frontend/src/data/api.ts`](frontend/src/data/api.ts).
-
-```bash
-cd frontend
-npm install
-npm run dev      # http://localhost:5173
-npm run build    # type-check + production build to frontend/dist
-```
-
-Pages: Dashboard, Trades, Risk limits, Accounts, Research (SEC filings). Light/dark theme follows the OS and can be toggled from the top bar.
 
 ---
 

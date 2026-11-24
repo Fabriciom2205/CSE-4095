@@ -12,6 +12,7 @@ import subprocess
 from bs4 import BeautifulSoup
 
 import sec_client
+from sec_statements import STATEMENTS
 
 LOAD_SQL = Path(__file__).resolve().parents[1] / "db" / "load_sec.sql"
 DEFAULT_CONCEPTS = ("us-gaap:Assets", "us-gaap:NetIncomeLoss", "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax")
@@ -72,13 +73,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("ticker")
     parser.add_argument("concept", metavar="TAXONOMY:CONCEPT", nargs="*")
+    parser.add_argument("--statement-facts", action="store_true", help="Include the mapped statement concepts and shares outstanding")
     parser.add_argument("--latest-auditor", action="store_true", help="Read dei:AuditorName from the latest original 10-K")
     args = parser.parse_args()
     if any(not all(concept.split(":")) or concept.count(":") != 1 for concept in args.concept):
         parser.error("each concept must be TAXONOMY:CONCEPT")
     if not os.getenv("PGDATABASE"):
         parser.error("set PGDATABASE to choose the target database")
-    batch = company_batch(args.ticker.strip().upper(), args.concept or DEFAULT_CONCEPTS, args.latest_auditor)
+    concepts = list(args.concept or DEFAULT_CONCEPTS)
+    if args.statement_facts:
+        concepts.extend(tag for statement in STATEMENTS.values() for tags in statement.values() for tag in tags)
+        concepts.append("dei:EntityCommonStockSharesOutstanding")
+    batch = company_batch(args.ticker.strip().upper(), concepts, args.latest_auditor)
     load_batch(batch)
     print(f"Processed {len(batch['facts'])} fact observations and {len(batch['auditors'])} auditor assertions.")
 

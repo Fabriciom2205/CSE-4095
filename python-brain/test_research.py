@@ -2,6 +2,7 @@
 import unittest
 import gc
 import json
+import os
 import asyncio
 import weakref
 from unittest.mock import Mock, patch
@@ -18,6 +19,8 @@ import mcp_server
 import sec_client
 
 AGENT_TOOLS = ["sec_company_research", "sec_query_filing_rag", "sec_get_financial_facts",
+               "sec_company_statement", "sec_relations", "sec_full_text_search",
+               "sec_filings", "sec_filing_section", "sec_risk_factor_diff",
                "massive_previous_close", "massive_daily_bars", "massive_ticker_details", "finnhub_quote",
                "finnhub_company_news", "finnhub_basic_financials", "finnhub_earnings_calendar"]
 
@@ -83,6 +86,27 @@ class ResearchTests(unittest.TestCase):
             other_tools = create_client.return_value.chats.create.call_args.kwargs["config"].tools
             other_tools[1](ticker="test", question="risk", form="10-Q")
             self.assertEqual(rag.call_count, 2)
+
+    def test_rag_accepts_a_discovered_filing_without_resolving_latest(self):
+        with patch.object(sec_client, "latest_filing") as latest, \
+             patch.object(mcp_server, "sec_query_filing_rag") as rag:
+            agent.sec_query_filing_rag("", "supplier risk", cik="0000320193",
+                                       accession_number="0000320193-25-000079", filename="aapl.htm")
+        latest.assert_not_called()
+        rag.assert_called_once_with("0000320193", "0000320193-25-000079", "aapl.htm",
+                                    "supplier risk", "key_sections", 4)
+
+    def test_rag_reader_alias_falls_back_to_memory_on_index_miss(self):
+        with patch.dict(os.environ, {"SEC_DB_READ_DSN": "reader", "SEC_RAG_READ_DSN": "", "SEC_RAG_WRITE_DSN": ""}), \
+             patch.object(filing_rag.filing_store, "find_index", return_value=None) as find, \
+             patch.object(sec_client, "tool_fetch_filing_text", return_value="filing") as fetch, \
+             patch.object(filing_rag, "clean_and_chunk_html", return_value=["evidence"]), \
+             patch.object(filing_rag, "index_filing"), \
+             patch.object(filing_rag, "query_filing_index", return_value=[{"chunk": "evidence", "score": 1}]):
+            excerpt = filing_rag.query_filing_rag("1", "0000000001-25-000001", "test.htm", "risk?", Mock())
+        self.assertIn("evidence", excerpt)
+        self.assertEqual(find.call_args.args[0], "reader")
+        fetch.assert_called_once()
 
     def test_embeddings_use_1536_dimensions_for_documents_and_queries(self):
         client = Mock()

@@ -1,5 +1,6 @@
 import os
 import re
+from threading import Lock
 import time
 from datetime import date
 from urllib.parse import urlparse, quote
@@ -16,6 +17,7 @@ DEFAULT_USER_AGENT = os.getenv("SEC_USER_AGENT", "TheMonroeFund research@themonr
 SEC_RATE_LIMIT_DELAY = 0.11  # At least 110ms between calls to enforce <= 10 req/sec
 
 _last_request_time = 0.0
+_request_lock = Lock()
 _cik_cache = {}
 _ticker_cache = {}
 _session = requests.Session()
@@ -37,10 +39,11 @@ def _rate_limited_get(url: str, params: dict = None) -> requests.Response:
     backoff = 1.0
 
     for attempt in range(retries):
-        elapsed = time.time() - _last_request_time
-        if elapsed < SEC_RATE_LIMIT_DELAY:
-            time.sleep(SEC_RATE_LIMIT_DELAY - elapsed)
-        _last_request_time = time.time()
+        with _request_lock:
+            elapsed = time.monotonic() - _last_request_time
+            if elapsed < SEC_RATE_LIMIT_DELAY:
+                time.sleep(SEC_RATE_LIMIT_DELAY - elapsed)
+            _last_request_time = time.monotonic()
 
         resp = _session.get(url, headers=headers, params=params, timeout=15, allow_redirects=False)
         if resp.status_code == 429:
@@ -85,14 +88,16 @@ def tool_cik_lookup(company_name_or_ticker: str) -> str:
     return ""
 
 
-def tool_full_text_search(query: str, form_type: str = "10-K", start_date: str = "") -> list:
+def tool_full_text_search(query: str, form_type: str = "10-K", start_date: str = "", *, cik: str = "") -> list:
     """Queries efts.sec.gov to locate filing documents matching keywords and form types."""
     if not isinstance(query, str) or not query.strip() or len(query) > 2000:
         raise ValueError("Search query must contain 1 to 2000 characters")
-    if not isinstance(form_type, str) or (form_type and not re.fullmatch(r"[A-Z0-9/-]{1,20}", form_type)):
+    if not isinstance(form_type, str) or (form_type and not re.fullmatch(r"[A-Z0-9 /-]{1,32}", form_type)):
         raise ValueError("Invalid SEC form type")
     url = f"https://efts.sec.gov/LATEST/search-index?q={quote(query)}"
     params = {}
+    if cik:
+        params["ciks"] = _validate_cik(cik)
     if form_type:
         params["forms"] = form_type
     if start_date:
@@ -107,14 +112,17 @@ def tool_full_text_search(query: str, form_type: str = "10-K", start_date: str =
     for hit in hits[:10]:
         src = hit.get("_source", {})
         ciks = src.get("ciks", [])
-        cik = str(ciks[0]).zfill(10) if ciks else ""
+        hit_ciks = [str(item).zfill(10) for item in ciks]
+        if cik and params["ciks"] not in hit_ciks:
+            continue
+        hit_cik = params["ciks"] if cik else hit_ciks[0] if hit_ciks else ""
         hit_id = hit.get("_id", "")
         file_name = hit_id.split(":", 1)[1] if ":" in hit_id else src.get("file_name", "")
         root_forms = src.get("root_forms", [])
         root_form = root_forms[0] if root_forms else src.get("root_form", "")
 
         results.append({
-            "cik": cik,
+            "cik": hit_cik,
             "adsh": src.get("adsh", ""),
             "form": src.get("form", ""),
             "file_date": src.get("file_date", ""),
@@ -147,28 +155,74 @@ def _validate_filename(filename: str) -> str:
     return filename
 
 
+def _submission_batches(cik, since=""):
+    data = _rate_limited_get(f"https://data.sec.gov/submissions/CIK{cik}.json").json()["filings"]
+    yield data["recent"]
+    for entry in sorted(data.get("files", []), key=lambda item: item.get("filingTo", ""), reverse=True):
+        if entry.get("filingTo") and entry["filingTo"] < since:
+            continue
+        filename = _validate_filename(entry["name"])
+        yield _rate_limited_get(f"https://data.sec.gov/submissions/{filename}").json()
+
+
+def _submission_rows(batch):
+    columns = zip(batch["form"], batch["filingDate"], batch["accessionNumber"], batch["primaryDocument"], strict=True)
+    report_dates = batch.get("reportDate")
+    return sorted(
+        ({"form": form, "filing_date": day, "accession_number": accession, "filename": filename,
+          "report_date": report_dates[index] or None if report_dates else None}
+         for index, (form, day, accession, filename) in enumerate(columns)),
+        key=lambda filing: (filing["filing_date"], filing["accession_number"]), reverse=True,
+    )
+
+
 def latest_filing(cik: str, form: str = "10-K") -> dict:
     """Find the latest original filing of the requested form in SEC submissions."""
     cik = _validate_cik(cik)
     if form not in ("10-K", "10-Q"):
         raise ValueError("Form must be 10-K or 10-Q")
-    data = _rate_limited_get(f"https://data.sec.gov/submissions/CIK{cik}.json").json()
-    batches = [data["filings"]["recent"]]
-    files = iter(data["filings"].get("files", []))
-    while True:
-        filings = batches.pop()
-        matches = [
-            {"filing_date": day, "accession_number": accession, "filename": filename}
-            for filing_form, day, accession, filename in zip(
-                filings["form"], filings["filingDate"], filings["accessionNumber"], filings["primaryDocument"], strict=True
-            ) if filing_form == form and filename
-        ]
-        if matches:
-            return max(matches, key=lambda filing: filing["filing_date"])
-        entry = next(files, None)
-        if entry is None:
-            raise ValueError(f"No {form} found for CIK {cik}")
-        batches.append(_rate_limited_get(f"https://data.sec.gov/submissions/{_validate_filename(entry['name'])}").json())
+    for batch in _submission_batches(cik):
+        for filing in _submission_rows(batch):
+            if filing["form"] == form and filing["filename"]:
+                return {key: filing[key] for key in ("filing_date", "accession_number", "filename")}
+    raise ValueError(f"No {form} found for CIK {cik}")
+
+
+def filing_timeline(cik: str, form: str = "", since: str = "", limit: int = 20) -> dict:
+    """List recent and archived SEC submissions with a bounded result size."""
+    cik = _validate_cik(cik)
+    form = form.strip().upper()
+    if form and not re.fullmatch(r"[A-Z0-9 /-]{1,32}", form):
+        raise ValueError("Invalid SEC form type")
+    since = date.fromisoformat(since).isoformat() if since else ""
+    if type(limit) is not int or not 1 <= limit <= 50:
+        raise ValueError("Filing limit must be between 1 and 50")
+    filings = []
+    seen = set()
+    for batch in _submission_batches(cik, since):
+        for row in _submission_rows(batch):
+            if (form and row["form"] != form) or row["filing_date"] < since:
+                continue
+            accession = _validate_accession(row["accession_number"])
+            if accession in seen:
+                continue
+            if len(filings) == limit:
+                return {"cik": cik, "filings": filings, "truncated": True}
+            seen.add(accession)
+            filename = row["filename"]
+            # SEC ownership forms can use a stylesheet directory for their primary XML.
+            directory, sep, leaf = filename.rpartition("/")
+            valid_directory = not sep or bool(re.fullmatch(r"xsl[A-Za-z0-9]+", directory))
+            try:
+                _validate_filename(leaf)
+                if not valid_directory:
+                    raise ValueError("Invalid SEC directory")
+            except ValueError:
+                filename = ""
+            base = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-', '')}"
+            row.update({"filename": filename, "url": f"{base}/{filename or accession + '-index.html'}"})
+            filings.append(row)
+    return {"cik": cik, "filings": filings, "truncated": False}
 
 
 def latest_10k(cik: str) -> dict:

@@ -4,6 +4,41 @@ To connect your local backend to the existing project database and run smoke tes
 
 Use PostgreSQL 15 or newer. The [initial migration](../db/migrations/001_sec.sql) creates the SEC schema for the standalone importer and [research queries](../db/research.sql). The optional [filing retrieval migration](../db/migrations/002_filing_retrieval.sql) enables PostgreSQL-backed semantic search in the agent and MCP tools.
 
+## Portfolio schema
+
+[Migration 003](../db/migrations/003_portfolio.sql) provisions accounts, positions, execution fills, and risk limits. Apply it as the migration owner in the intended database.
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -f db/migrations/003_portfolio.sql
+# To check the schema on a disposable database after applying it:
+psql -X -v ON_ERROR_STOP=1 -f db/tests/portfolio.sql
+```
+
+The Alpaca client reads directly from the broker. A separate process would own sync and write access if persistence is added. Keep portfolio grants separate from SEC reader and writer roles. Orders represent broker requests and their aggregate status. The trade table represents individual executions.
+
+### Audited paper execution
+
+Apply migration 004 after migration 003:
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -f db/migrations/004_portfolio_audit.sql
+```
+
+Use a dedicated login and the same database for all runners on the account. The migration operator configures risk limits and historical snapshots. Example grants for an existing `portfolio_executor` login:
+
+```sql
+GRANT USAGE ON SCHEMA portfolio TO portfolio_executor;
+GRANT USAGE ON SEQUENCE portfolio.account_id_seq, portfolio.decision_id_seq TO portfolio_executor;
+GRANT SELECT, INSERT, UPDATE ON portfolio.account TO portfolio_executor;
+GRANT SELECT ON portfolio.risk_limit TO portfolio_executor;
+GRANT SELECT, INSERT ON portfolio.equity_snapshot, portfolio.order_intent, portfolio.trade TO portfolio_executor;
+GRANT SELECT, INSERT ON portfolio.decision TO portfolio_executor;
+GRANT UPDATE (state, broker_order_id, broker_status, updated_at, settled_at)
+    ON portfolio.decision TO portfolio_executor;
+```
+
+Set `MONROE_PORTFOLIO_DSN` to a libpq connection string for this login. Use the numeric account ID from `--record-equity` to configure its existing `portfolio.risk_limit` row. Store the daily limits in `max_daily_orders` and `max_daily_notional`. The [runbook](LOCAL_SETUP.md#audited-paper-execution-runbook) describes initialization, retries, halt, and reconciliation. Integration tests use `MONROE_PORTFOLIO_TEST_DSN` and insert fixture rows. Point it only at a disposable database.
+
 ## Local database
 
 Set the standard libpq connection variables for the database you created. Use a prompt for migration credentials and a protected [password file](https://www.postgresql.org/docs/current/libpq-pgpass.html) for unattended imports. The importer uses `PGDATABASE` as a database name and accepts the other standard `PG*` settings.
@@ -58,7 +93,7 @@ SEC_RAG_READ_DSN=host=127.0.0.1 port=5433 dbname=monroe_fund user=sec_reader
 SEC_RAG_WRITE_DSN=host=127.0.0.1 port=5433 dbname=monroe_fund user=sec_index_writer
 ```
 
-The first search for a filing and section fetches the document from EDGAR, embeds the chunks, and publishes the index in one transaction. Later searches for the same filing, section, model, and chunking version embed only the question. Concurrent misses can repeat embedding requests before a single index commits. With only the reader configured, a missing index returns an error. With both settings unset, retrieval uses the in-memory index. The agent still resolves the latest filing via EDGAR and reads financial facts from EDGAR.
+The first search for a filing and section fetches the document from EDGAR, embeds the chunks, and publishes the index in one transaction. Later searches for the same filing, section, model, and chunking version embed only the question. Concurrent misses can repeat embedding requests before a single index commits. With only the reader configured, a missing index falls back to an in-memory index built from EDGAR. A database error also uses the in-memory path. With both settings unset, retrieval uses the in-memory index. `SEC_DB_READ_DSN` is accepted in place of `SEC_RAG_READ_DSN` when the latter is unset.
 
 From the repository root, run one check after setting up database access, Google Cloud ADC, and the SEC contact. Replace `TICKER` with an SEC-listed ticker.
 
@@ -66,7 +101,7 @@ From the repository root, run one check after setting up database access, Google
 python python-brain/init.py --postgres TICKER
 ```
 
-This checks SEC EDGAR, Gemini, and the PostgreSQL reader. It also requires an excerpt from the latest 10-K through the agent's shared MCP filing tool. A missing Business-section index exercises the writer and stores the resulting index. A previously indexed filing exercises the reader. The regular `init.py` check uses read-only PostgreSQL queries when `SEC_RAG_READ_DSN` is configured. A missing retrieval table means migration 002 needs to be applied. A permissions error means the configured role needs the grants above.
+This checks SEC EDGAR, Gemini, and the PostgreSQL reader. It also requires an excerpt from the latest 10-K through the agent's shared MCP filing tool. A missing Business-section index exercises the writer when one is configured. A previously indexed filing exercises the reader. The regular `init.py` check uses read-only PostgreSQL queries when either reader DSN is configured. A missing retrieval table means migration 002 needs to be applied. A permissions error means the configured role needs the grants above.
 
 Use the following test on a disposable database after applying both migrations and the grants. Point both test settings at the disposable database. The tests add fixture rows.
 
@@ -75,6 +110,22 @@ SEC_RAG_TEST_READ_DSN='host=127.0.0.1 dbname=monroe_rag_test user=sec_reader' \
 SEC_RAG_TEST_WRITE_DSN='host=127.0.0.1 dbname=monroe_rag_test user=sec_index_writer' \
 python -m unittest discover -s python-brain -p 'test_filing_store.py'
 ```
+
+### Read consolidated facts and relationships
+
+EDGAR Company Facts is the default for financial facts and statements. To opt in to SQL reads, use migration 001 and a reader with `SELECT` on `sec.fact` and `sec.filing`. Populate the mapped tags with the existing importer and its separate writer role.
+
+```bash
+python python-brain/ingest_sec.py TICKER --statement-facts
+```
+
+Set `SEC_DB_READ_DSN` to the reader's connection string after seeding. The tools fall back to EDGAR on a database error or missing fact or statement line. Import regularly if you depend on the SQL path for recent accessions. The importer includes `dei:EntityCommonStockSharesOutstanding` in the same option. Reported shares and the quote must refer to compatible share classes and dates before combining them.
+
+`sec_company_statement` returns core balance sheet, income statement, or cash flow lines for an exact fiscal period end. Pass `annual`, `quarter` (standalone Q1–Q3), or `q4`, and the reporting currency (USD by default). Use a filing's fiscal end date. Q4 flows use full year less nine months for the same tag, unit, and fiscal start. Derived lines include both filing accessions. Missing or conflicting data is explicit. SEC Company Facts coverage varies, particularly for standalone cash flow quarters and issuers that do not file 10-Qs.
+
+`sec_relations` reads historical assertions, including dimensions, from `sec.reported_triple`. It uses either reader DSN and needs `SELECT` on that view, `sec.node`, and `sec.filing`. Results are limited to 50 observations per predicate and cutoff. Coverage depends on the loaders, and an empty result only describes the stored evidence.
+
+The agent uses EFTS through `sec_full_text_search` to discover candidate filings. It can pass a hit's CIK, accession, and filename to `sec_query_filing_rag` to retrieve narrative evidence from that document.
 
 ### Runtime credentials in Secret Manager
 

@@ -27,8 +27,13 @@ SERVER_PATH = Path(__file__).resolve().parent / "mcp_server.py"
 EXPECTED_TOOLS = {
     "sec_cik_lookup",
     "sec_full_text_search",
+    "sec_filings",
+    "sec_filing_section",
+    "sec_risk_factor_diff",
     "sec_fetch_filing_text",
     "sec_get_financial_facts",
+    "sec_company_statement",
+    "sec_relations",
     "sec_query_filing_rag",
     "sec_company_research",
     "massive_daily_bars",

@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -19,6 +20,7 @@ EMBEDDING_DIMENSIONS = 1536
 # Increment when extraction or chunk construction changes.
 CHUNK_VERSION = 1
 MAX_CACHED_FILINGS = 20
+log = logging.getLogger(__name__)
 
 # In-memory store: {filing_key: {"chunks": list[str], "embeddings": np.ndarray}}
 _filing_indices = {}
@@ -226,7 +228,7 @@ def _query_postgres(read_dsn, write_dsn, cik, accession, filename, section, ques
     index_id = filing_store.find_index(read_dsn, key)
     if index_id is None:
         if not write_dsn:
-            raise ValueError("Filing index is missing; configure SEC_RAG_WRITE_DSN to build it")
+            return []
         raw_html = sec_client.tool_fetch_filing_text(cik=cik, accession_number=accession, filename=filename)
         chunks = clean_and_chunk_html(raw_html, section=section)
         if not chunks:
@@ -260,15 +262,19 @@ def query_filing_rag(
     cik = sec_client._validate_cik(cik)
     sec_client._validate_accession(accession_number)
     sec_client._validate_filename(filename)
-    read_dsn = os.getenv("SEC_RAG_READ_DSN")
+    read_dsn = os.getenv("SEC_RAG_READ_DSN") or os.getenv("SEC_DB_READ_DSN")
     write_dsn = os.getenv("SEC_RAG_WRITE_DSN")
+    if write_dsn and not read_dsn:
+        raise ValueError("Configure SEC_RAG_READ_DSN or SEC_DB_READ_DSN to use PostgreSQL filing retrieval")
+    results = []
     if read_dsn:
-        results = _query_postgres(read_dsn, write_dsn, cik, accession_number, filename, section, question, client, top_k)
-        if results is None:
-            return "No matching content found in target filing section."
-    else:
-        if write_dsn:
-            raise ValueError("Configure SEC_RAG_READ_DSN to use PostgreSQL filing retrieval")
+        try:
+            results = _query_postgres(read_dsn, write_dsn, cik, accession_number, filename, section, question, client, top_k)
+        except filing_store.FilingStoreError as error:
+            log.warning("%s; using in-memory filing retrieval", error)
+    if results is None:
+        return "No matching content found in target filing section."
+    if not results:
         cache_key = f"{cik}_{accession_number}_{filename}_{section}"
         if cache_key not in _filing_indices:
             raw_html = sec_client.tool_fetch_filing_text(cik=cik, accession_number=accession_number, filename=filename)

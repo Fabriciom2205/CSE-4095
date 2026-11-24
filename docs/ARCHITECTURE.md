@@ -9,14 +9,14 @@ The Monroe Fund prioritizes Python-based agentic financial research: searching a
 * **Python brain:** The Gemini agent calls Python research tools for company lookup, filing search, retrieval, and synthesis. The MCP server exposes the shared tools to MCP clients.
 * **MCP:** Maintain and test the SEC MCP server and its research tools, including both supported transports. Expand tools and sources as research needs warrant.
 * **Financial data aggregation:** Combine structured financial facts, unstructured filings, and Massive and Finnhub market data, with further sources such as Alpaca to be evaluated as needed. Attribute findings to their sources and validate data quality.
-* **Research interface:** The React frontend uses mock data. A Python HTTP API and integration with its Research page are planned.
+* **Research tools:** The agent decides the sequence. Typed tools read consolidated XBRL facts and reported dimensions or relationships. EFTS finds filings by keyword. RAG retrieves narrative evidence from a filing. Market data tools supply quotes and other market observations. Each tool handles its own data access and any fallback. The filing timeline lists documents by form and filing date. Linked filing headings support deterministic section excerpts and annual risk-factor comparisons. See [PostgreSQL research setup](POSTGRESQL.md#read-consolidated-facts-and-relationships).
+* **Research interface:** The Python agent, MCP server, and authenticated FastAPI application are the current entry points. The HTTP API uses ADK specialists with durable sessions. The final frontend will follow the backend. [Phase 5 contract](decisions/0005-phase-5-api-and-agent-runtime.md)
 * **Storage and deployment:** The project Cloud SQL database has pgvector and the filing retrieval tables. Live verification covered building a new index and reusing it with reader-only credentials. The standalone importer can store selected facts and auditor data. Financial-fact tools still query EDGAR live. [PostgreSQL decision](decisions/0003-postgresql-sec-research.md) · [Cloud SQL verification](notes/2026-11-17-cloud-sql-filing-retrieval.md)
 
 ```mermaid
 flowchart LR
-    UI["React Research page with mock data"] -. "planned Python HTTP API" .-> Agent["Python research agent"]
     Client["MCP client"] --> MCP["SEC MCP server"]
-    Agent --> Tools["Shared Python research tools"]
+    Agent["Python research agent"] --> Tools["Shared Python research tools"]
     MCP --> Tools
     Agent --> Gemini["Gemini"]
     Tools -->|"Company lookup, latest filings, facts"| SEC["Live SEC EDGAR"]
@@ -28,11 +28,15 @@ flowchart LR
     Importer -->|"Store imported SEC data"| CloudSQL
 ```
 
-Filing retrieval uses an in-memory index when both PostgreSQL connections are unset. A configured reader can query existing indexes, and a separate scoped writer can publish indexes on cache misses. When the React Research page is connected, it will call the Python backend, which owns the database connections. [PostgreSQL setup](POSTGRESQL.md#enable-persistent-filing-retrieval)
+Filing retrieval uses an in-memory index when both PostgreSQL connections are unset. A configured reader can query existing indexes, and a separate scoped writer can publish indexes on cache misses. [PostgreSQL setup](POSTGRESQL.md#enable-persistent-filing-retrieval)
+
+### Portfolio and strategy
+
+Alpaca provides account, position, and order data. The separate portfolio schema defines storage for accounts, positions, fills, and risk limits. Pure Python functions evaluate risk. Strategies are data, and the backtester replays them over stored daily bars. A dedicated proposal session can read portfolio exposures and check proposed target weights. Deterministic order sizing stays outside the agent tool surface. A separate local CLI can opt in to a single Alpaca paper order per durable decision. PostgreSQL records the intent before submission and reconciles subsequent fills. The same database supplies execution limits and historical peak equity. [Portfolio and strategy decision](decisions/0004-portfolio-and-deterministic-strategy.md)
 
 ## 2. Deferred Work
 
-Rust compute, backtesting, streaming, and order execution are deferred. Revisit them if measured workloads or product requirements justify the additional components. [Original architecture](decisions/0001-polyglot-trading-platform-architecture.md) · [Python-first scope decision](decisions/0002-python-first-research-scope.md)
+Rust compute, advanced backtesting, streaming, and live order execution are deferred. Revisit them if measured workloads or product requirements justify the additional components. [Original architecture](decisions/0001-polyglot-trading-platform-architecture.md) · [Python-first scope decision](decisions/0002-python-first-research-scope.md)
 
 ## 3. Development Considerations
 

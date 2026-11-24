@@ -125,14 +125,29 @@ TICKER_FIELDS = ("name", "market", "primary_exchange", "type", "active", "curren
                  "total_employees", "list_date", "homepage_url", "description")
 
 
-def massive_daily_bars(ticker: str, start_date: str = "", end_date: str = "") -> dict:
+def massive_daily_bars(ticker: str, start_date: str = "", end_date: str = "", *, adjusted: bool = True) -> dict:
     symbol = _symbol(ticker)
     today = date.today()
     start, end = _date_range(start_date, end_date, today - timedelta(days=30), today, MAX_RANGE_DAYS)
     data = _get("massive", f"{MASSIVE_URL}/v2/aggs/ticker/{quote(symbol)}/range/1/day/{start}/{end}",
-                {"adjusted": "true", "sort": "asc", "limit": 5000})
+                {"adjusted": "true" if adjusted else "false", "sort": "asc", "limit": 5000})
+    if data.get("next_url"):
+        raise ValueError(f"Massive returned an incomplete bar window for {symbol}")
     bars = [_bar(bar) for bar in data.get("results") or []]
-    return {"ticker": symbol, "start_date": start, "end_date": end, "adjusted": True, "bars": bars}
+    return {"ticker": symbol, "start_date": start, "end_date": end, "adjusted": adjusted, "bars": bars}
+
+
+def massive_splits(ticker: str, start_date: str, end_date: str) -> list:
+    symbol = _symbol(ticker)
+    start, end = _date_range(start_date, end_date, date.today(), date.today(), MAX_RANGE_DAYS)
+    data = _get("massive", f"{MASSIVE_URL}/stocks/v1/splits",
+                {"ticker": symbol, "execution_date.gte": start, "execution_date.lte": end, "limit": 100})
+    if data.get("next_url"):
+        raise ValueError(f"Massive returned an incomplete split window for {symbol}")
+    splits = data.get("results", [])
+    if not isinstance(splits, list):
+        raise ValueError("Massive returned an unexpected split response")
+    return splits
 
 
 def massive_previous_close(ticker: str) -> dict:

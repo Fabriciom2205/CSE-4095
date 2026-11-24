@@ -8,7 +8,6 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import numpy as np
-from mcp.server.mcpserver.exceptions import ToolError
 
 import agent
 import filing_rag
@@ -59,13 +58,13 @@ class FilingStoreTests(unittest.TestCase):
                 self.assertEqual(cached["data"]["excerpts"], result["data"]["excerpts"])
                 self.assertEqual(client.models.embed_content.call_count, 3)
                 fetch.assert_called_once()
-                with self.assertRaisesRegex(ToolError, "Filing index is missing"):
-                    mcp_server.sec_query_filing_rag(CIK, ACCESSION, self.filename, "margin?", "mda")
+                fallback = mcp_server.sec_query_filing_rag(CIK, ACCESSION, self.filename, "margin?", "mda")
+                self.assertIn("Operating margin", fallback["data"]["excerpts"])
 
             mda = mcp_server.sec_query_filing_rag(CIK, ACCESSION, self.filename, "margin?", "mda")
             self.assertIn("Operating margin", mda["data"]["excerpts"])
             self.assertNotIn("Supply risk", mda["data"]["excerpts"])
-            self.assertEqual(fetch.call_count, 2)
+            self.assertEqual(fetch.call_count, 3)
             self.assertEqual(init.check_postgres()[0], init.PASS)
             self.assertEqual(init.check_postgres("AAPL")[0], init.PASS)
 

@@ -8,9 +8,9 @@ This repository is shared across multiple contributors and agentic workflows. To
 
 ## Project Overview
 
-**The Monroe Fund** is a Python-first AI-assisted financial research project. Near-term work focuses on agentic search, MCP tools, SEC filings, and aggregation of financial data. The React frontend supports research but currently uses mock data. Persistent storage and Google Cloud infrastructure are planned as needed. Rust compute, backtesting, and execution components remain possible future work, but are deferred.
+**The Monroe Fund** is a Python-first AI-assisted financial research project. Near-term work focuses on agentic search, MCP tools, SEC filings, and aggregation of financial data. The current focus is finalizing the backend before building the final frontend. Persistent storage and Google Cloud infrastructure are planned as needed. The backend includes deterministic risk and a daily-bar backtest. Rust compute and live execution remain deferred.
 * **Architecture Reference:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-* **Architectural Decisions:** [ADR 0001](docs/decisions/0001-polyglot-trading-platform-architecture.md), revised by [ADR 0002](docs/decisions/0002-python-first-research-scope.md). [ADR 0003](docs/decisions/0003-postgresql-sec-research.md) records the SEC PostgreSQL design.
+* **Architectural Decisions:** [ADR 0001](docs/decisions/0001-polyglot-trading-platform-architecture.md), revised by [ADR 0002](docs/decisions/0002-python-first-research-scope.md). [ADR 0003](docs/decisions/0003-postgresql-sec-research.md) records the SEC PostgreSQL design. [ADR 0004](docs/decisions/0004-portfolio-and-deterministic-strategy.md) records the portfolio and strategy boundaries. [ADR 0005](docs/decisions/0005-phase-5-api-and-agent-runtime.md) covers the API and agent runtime.
 ---
 
 ## Agent Workflow & Handoff Protocol
@@ -73,11 +73,20 @@ Use this checklist for handoffs between agents. Keep it up to date.
 * [ ] Verify filing section extraction across more real filings; assess indexing cost and persistent storage (see [docs/notes/2026-11-13-agent-retrieval-fix.md](docs/notes/2026-11-13-agent-retrieval-fix.md))
 * [ ] Re-run MCP transport tests with live SEC access after the deterministic error assertion fix (see [docs/notes/2026-11-13-mcp-transport-error-test.md](docs/notes/2026-11-13-mcp-transport-error-test.md))
 * [ ] Make `test_cache_eviction_bounded` and `test_archive_url_construction` call the real `filing_rag` / `sec_client` code
-* [x] Scaffold React + TypeScript frontend with mock data in [frontend/](frontend/) (see [docs/notes/2026-11-11-frontend-scaffold.md](docs/notes/2026-11-11-frontend-scaffold.md))
-* [x] Adopt Private Ledger with translucent navigation and controls (see [docs/notes/2026-11-11-ui-style-mockups.md](docs/notes/2026-11-11-ui-style-mockups.md))
+* [x] Remove the mock frontend to focus on completing the backend (see [handoff](docs/notes/2026-11-20-remove-mock-frontend.md))
 * [x] Verify live 1536-dimensional embeddings using a real SEC filing and pgvector (see [docs/notes/2026-11-17-postgresql-filing-retrieval.md](docs/notes/2026-11-17-postgresql-filing-retrieval.md))
-* [ ] Add a python-brain HTTP API and wire the frontend Research page (`frontend/src/data/api.ts`) to it
-* [ ] Add frontend tests (Vitest + Playwright smoke test) and ESLint
+* [x] Add read-only Alpaca account, position, and order access and portfolio migration 003 (see [portfolio setup](docs/LOCAL_SETUP.md#portfolio-and-strategy-tools))
+* [x] Add deterministic portfolio risk checks and a reproducible daily-bar backtest (see [handoff](docs/notes/2026-11-20-portfolio-risk-strategy.md))
+* [x] Verify Alpaca paper read access and a reproducible 12-month Massive replay (see [live verification](docs/notes/2026-11-22-live-provider-verification.md))
+* [x] Verify Alpaca position and filled order mappings against a populated paper account (see [Phase 4 verification](docs/notes/2026-11-23-phase-4-proposals.md))
+* [x] Implement read-only Phase 4 proposals under the [ADR 0004 amendment](docs/decisions/0004-portfolio-and-deterministic-strategy.md#phase-4-amendment-2026-11-23)
+* [x] Add separate proposal and explicitly enabled local paper execution modes (see [worklog](docs/notes/2026-11-23-paper-execution-mode.md))
+* [x] Add durable paper order intents, database peak and daily caps, and fill reconciliation (see [Phase 6 handoff](docs/notes/2026-11-23-paper-order-audit.md))
+* [ ] Provision the shared execution database and run the paper submission and duplicate-key smoke test during regular market hours
+* [ ] Add trusted equity history to HTTP proposal drawdown checks and source reliable sector classifications before enabling sector caps
+* [x] Serve the Phase 5 FastAPI contract with ADK specialists and durable sessions (see [Phase 5 handoff](docs/notes/2026-11-23-phase-5-api-implementation.md))
+* [x] Verify local API startup, bearer auth, and SQLite session lookup with the project virtual environment
+* [ ] Configure the API token and dedicated session database for the intended deployment
 * [ ] Deferred: Initialize remaining workspace directories (rust-muscle, proto)
 * [ ] Deferred: Set up protobuf/gRPC definitions if a Rust daemon is needed
 * [ ] Deferred: Configure PyO3/maturin bindings if measured compute needs justify them
@@ -92,8 +101,12 @@ Use this checklist for handoffs between agents. Keep it up to date.
 * [x] Prepare the shared security and PostgreSQL changes for the main branch (see [release handoff](docs/notes/2026-11-17-security-postgresql-release.md))
 * [x] Implement Massive and Finnhub market data clients, MCP tools, and agent tools (see [market data tools](docs/notes/2026-11-18-market-data-tools.md))
 * [x] Verify the Massive and Finnhub tools against live APIs (see [market data tools](docs/notes/2026-11-18-market-data-tools.md))
+* [ ] Deferred: Scope Alpaca market data or brokerage access if requested (see [Alpaca status](docs/notes/2026-11-20-alpaca-status.md))
+* [x] Verify Finnhub general news and NVDA company news against the live API (see [news verification](docs/notes/2026-11-22-finnhub-news-check.md))
 * [ ] Confirm market data endpoint scope and plan tiers with Jhoan; check an end-to-end agent answer that combines filings and market data (see [market data tools](docs/notes/2026-11-18-market-data-tools.md))
-* [ ] Evaluate PostgreSQL reads for consolidated financial facts
+* [x] Add opt-in PostgreSQL reads for consolidated financial facts and statements, with automatic EDGAR fallback and typed relationship reads (see [research routing](docs/notes/2026-11-20-sec-research-routing.md))
+* [x] Add an all-forms SEC filing timeline, linked section navigation, and annual risk-factor text diff (see [filing navigation](docs/notes/2026-11-20-sec-filing-navigation.md))
+* [ ] Expand statement coverage validation and load dimensions and relationships before relying on broad SQL coverage (see [research routing](docs/notes/2026-11-20-sec-research-routing.md))
 * [ ] Set up Python service deployment and CI/CD when needed, applying Well-Architected guidance and documenting unmet controls
 
 ---
@@ -104,6 +117,22 @@ Keep a reverse-chronological list of session notes here. Whenever you create a n
 
 | Date | Topic / Session | Note Link | Contributors / Agent |
 | :--- | :--- | :--- | :--- |
+| 2026-11-23 | Main backend release handoff | [docs/notes/2026-11-23-main-backend-handoff.md](docs/notes/2026-11-23-main-backend-handoff.md) | Codex |
+| 2026-11-23 | Phase 6 paper order audit and reconciliation | [docs/notes/2026-11-23-paper-order-audit.md](docs/notes/2026-11-23-paper-order-audit.md) | Codex |
+| 2026-11-23 | Local API startup and session storage | [docs/notes/2026-11-23-local-api-startup.md](docs/notes/2026-11-23-local-api-startup.md) | Codex |
+| 2026-11-23 | Phase 5 FastAPI and ADK implementation | [docs/notes/2026-11-23-phase-5-api-implementation.md](docs/notes/2026-11-23-phase-5-api-implementation.md) | Codex |
+| 2026-11-23 | ADK specialists and durable conversations | [docs/notes/2026-11-23-adk-specialists.md](docs/notes/2026-11-23-adk-specialists.md) | Codex |
+| 2026-11-23 | Phase 5 runtime and API decision | [docs/notes/2026-11-23-phase-5-runtime-decision.md](docs/notes/2026-11-23-phase-5-runtime-decision.md) | Codex |
+| 2026-11-23 | Opt-in paper execution mode | [docs/notes/2026-11-23-paper-execution-mode.md](docs/notes/2026-11-23-paper-execution-mode.md) | Codex |
+| 2026-11-23 | Phase 4 proposals and live position verification | [docs/notes/2026-11-23-phase-4-proposals.md](docs/notes/2026-11-23-phase-4-proposals.md) | Codex |
+| 2026-11-23 | Phase 4 proposal preflight | [docs/notes/2026-11-23-phase-4-preflight.md](docs/notes/2026-11-23-phase-4-preflight.md) | Codex |
+| 2026-11-22 | Finnhub news verification | [docs/notes/2026-11-22-finnhub-news-check.md](docs/notes/2026-11-22-finnhub-news-check.md) | Codex |
+| 2026-11-22 | Live Alpaca and Massive verification | [docs/notes/2026-11-22-live-provider-verification.md](docs/notes/2026-11-22-live-provider-verification.md) | Codex |
+| 2026-11-20 | Portfolio, risk, and strategy replay | [docs/notes/2026-11-20-portfolio-risk-strategy.md](docs/notes/2026-11-20-portfolio-risk-strategy.md) | Codex |
+| 2026-11-20 | Remove mock frontend | [docs/notes/2026-11-20-remove-mock-frontend.md](docs/notes/2026-11-20-remove-mock-frontend.md) | Codex |
+| 2026-11-20 | Alpaca integration status | [docs/notes/2026-11-20-alpaca-status.md](docs/notes/2026-11-20-alpaca-status.md) | Codex |
+| 2026-11-20 | Filing timeline and linked sections | [docs/notes/2026-11-20-sec-filing-navigation.md](docs/notes/2026-11-20-sec-filing-navigation.md) | Codex |
+| 2026-11-20 | Typed SEC research and filing discovery | [docs/notes/2026-11-20-sec-research-routing.md](docs/notes/2026-11-20-sec-research-routing.md) | Codex |
 | 2026-11-18 | Massive and Finnhub market data tools | [docs/notes/2026-11-18-market-data-tools.md](docs/notes/2026-11-18-market-data-tools.md) | Fabricio |
 | 2026-11-18 | Market data API kickoff (Massive and Finnhub) | [docs/notes/2026-11-18-market-data-api-kickoff.md](docs/notes/2026-11-18-market-data-api-kickoff.md) | Fabricio |
 | 2026-11-17 | README architecture diagram | [docs/notes/2026-11-17-readme-architecture-diagram.md](docs/notes/2026-11-17-readme-architecture-diagram.md) | Codex |
