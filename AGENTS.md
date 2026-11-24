@@ -93,7 +93,9 @@ Use this checklist for handoffs between agents. Keep it up to date.
 * [x] Group backend tests and opt-in live checks under [python-brain/tests/](python-brain/tests/) (see [test layout handoff](docs/notes/2026-11-23-backend-test-layout.md))
 * [ ] Measure generation and embedding cost across representative research and proposal requests before changing the model or adding billing dashboards
 * [x] Verify local API startup, bearer auth, and SQLite session lookup with the project virtual environment
-* [ ] Configure the API token and dedicated session database for the intended deployment
+* [x] Verify local API conversations persist in the dedicated Cloud SQL session database through the Auth Proxy
+* [x] Configure the private Cloud Run API token and connect its dedicated session database through Cloud SQL
+* [x] Install local user services for one-command startup of the API and Cloud SQL proxy
 * [ ] Deferred: Initialize remaining workspace directories (rust-muscle, proto)
 * [ ] Deferred: Set up protobuf/gRPC definitions if a Rust daemon is needed
 * [ ] Deferred: Configure PyO3/maturin bindings if measured compute needs justify them
@@ -118,7 +120,8 @@ Use this checklist for handoffs between agents. Keep it up to date.
 * [x] Add SEC Figure Source research for Form 4 transactions and 13F holdings changes (see [handoff](docs/notes/2026-11-23-figure-sources.md))
 * [x] Add indexed cross-filing narrative retrieval with repeated-passage deduplication and explicit coverage gaps
 * [ ] Expand statement coverage and imported data across more issuers and filing periods before relying on broad SQL coverage
-* [ ] Set up Python service deployment and CI/CD when needed, applying Well-Architected guidance and documenting unmet controls
+* [x] Deploy the Python API privately on Cloud Run with a scoped service account and pinned secret references
+* [ ] Automate test-gated image publication and Cloud Run revisions when CI/CD is needed
 
 ---
 
@@ -128,6 +131,8 @@ Keep a reverse-chronological list of session notes here. Whenever you create a n
 
 | Date | Topic / Session | Note Link | Contributors / Agent |
 | :--- | :--- | :--- | :--- |
+| 2026-11-24 | Local startup and private Cloud Run deployment | [docs/notes/2026-11-24-local-and-cloud-operations.md](docs/notes/2026-11-24-local-and-cloud-operations.md) | Codex |
+| 2026-11-24 | Cloud SQL conversation persistence | [docs/notes/2026-11-24-cloud-sql-conversations.md](docs/notes/2026-11-24-cloud-sql-conversations.md) | Codex |
 | 2026-11-24 | Voice research and portfolio and MCP controls | [docs/notes/2026-11-24-voice-and-portfolio-controls.md](docs/notes/2026-11-24-voice-and-portfolio-controls.md) | Codex |
 | 2026-11-24 | Opt-in SEC research visuals | [docs/notes/2026-11-24-research-visuals.md](docs/notes/2026-11-24-research-visuals.md) | Codex |
 | 2026-11-24 | Backend deliverables and live verification | [docs/notes/2026-11-24-backend-deliverables.md](docs/notes/2026-11-24-backend-deliverables.md) | Codex |

@@ -176,6 +176,26 @@ From the repository root:
 
 Open `http://127.0.0.1:8000/docs` or fetch `/openapi.json` for the typed contract. Application routes are bearer protected. The health route only checks configuration. Keep this single-operator service on loopback for local development. Use TLS for any remote deployment.
 
+### Start the local services together
+
+On a system with a user systemd instance, install the proxy and API services once from the repository root.
+
+```bash
+bash ops/install-local-services.sh PROJECT:REGION:INSTANCE
+```
+
+The installer starts the API and enables it at login. The API starts the proxy and checks the configured conversation database and SEC reader before it begins listening. The proxy binds to port `5433` by default. To avoid an existing listener, pass a second argument with a free proxy port and set the session and SEC DSNs and password-file entries to use that port.
+
+```bash
+systemctl --user start monroe-api.service
+systemctl --user status monroe-api.service monroe-cloud-sql.service
+journalctl --user -u monroe-api.service -u monroe-cloud-sql.service -f
+```
+
+Use `systemctl --user stop monroe-api.service monroe-cloud-sql.service` to stop both services. Local development uses the repository's virtual environment and existing Google credentials.
+
+For remote use, see the [private Cloud Run deployment](CLOUD_RUN.md).
+
 ### Research voice input
 
 Send up to 4 MiB of recorded audio bytes to authenticated `POST /research/transcribe`. Set the recording's `Content-Type` to `audio/webm`, `audio/ogg`, `audio/mp4`, `audio/wav`, or `audio/mpeg`. The response is `{"transcript":"…"}`. Let the operator review or edit the transcript, then send it as the existing `question` field on `POST /research`. The server sends audio to the configured Gemini service for transcription and keeps no audio file in the application. Only the submitted question becomes part of the research conversation. [Gemini audio formats](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/audio-understanding)

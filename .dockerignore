@@ -1,0 +1,7 @@
+**
+!Dockerfile
+!python-brain/
+!python-brain/*.py
+!python-brain/requirements.txt
+python-brain/__pycache__/
+python-brain/tests/
