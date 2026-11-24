@@ -25,6 +25,7 @@ The migration checks and documented reader and writer grants passed on a disposa
 
 ## Next Steps (Handoff Checklist)
 
-* [ ] Verify the importer on a small live SEC batch and load historical auditor observations.
-* [ ] Add a dimensional XBRL loader that retains full context and accurate periods, then prioritize other relationship loaders by research demand.
-* [ ] Connect approved research queries through the reader role when the stored corpus is ready.
+* [x] Verify the importer on live SEC data and load historical auditor observations. [Verification](2026-11-24-backend-deliverables.md)
+* [x] Add a loader for monetary facts with explicit standard axes and retain their contexts and periods. [Verification](2026-11-24-backend-deliverables.md)
+* [x] Expose the query through the existing SEC reader and research tools. [Verification](2026-11-24-backend-deliverables.md)
+* [ ] Extend dimensional and relationship coverage as research demand warrants.

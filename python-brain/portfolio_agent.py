@@ -11,9 +11,10 @@ import os
 import agent
 import alpaca_client as broker
 import market_data
+import portfolio_sectors
 from propose import Proposal, SYMBOL
 from portfolio_store import connect, digest
-from risk import Position, RiskLimits, check_limits, size_notional
+from risk import Position, RiskLimits, check_limits, classified_positions, size_notional
 
 
 def _ensure_running():
@@ -155,6 +156,9 @@ def _execute(proposal: Proposal, ledger, account_id, external_id, key, request_d
         projected = [Position(p["symbol"], None, p["market_value"]) for p in positions if p["symbol"] != symbol]
         final_quantity = held + (quantity if side == "buy" else -quantity)
         projected.append(Position(symbol, None, final_quantity * price))
+        if limits.max_sector_weight is not None:
+            sectors = portfolio_sectors.classifications(p.symbol for p in projected if p.market_value)
+            projected = classified_positions(projected, sectors)
         breaches = check_limits(projected, equity, max(equity, peak_equity), limits, order_notional=notional)
     if breaches:
         raise ValueError("Paper order breaches " + ", ".join(sorted({b.limit for b in breaches})))
@@ -192,7 +196,7 @@ def main():
     mode.add_argument("--reconcile", action="store_true", help="Read broker order and fill status into the ledger")
     parser.add_argument("--symbol", help="Only symbol this run may trade")
     parser.add_argument("--decision-key", help="Stable operator-chosen key reused on every retry")
-    for name in ("max-order-notional", "max-gross-notional", "max-name-weight", "max-drawdown"):
+    for name in ("max-order-notional", "max-gross-notional", "max-name-weight", "max-sector-weight", "max-drawdown"):
         parser.add_argument(f"--{name}", type=Decimal, help="Proposal mode only")
     args = parser.parse_args()
     try:
@@ -204,7 +208,8 @@ def main():
             if not args.prompt or (not args.execute_paper and args.peak_equity is None):
                 raise ValueError("Provide a prompt and, in proposal mode, --peak-equity")
             caps = dict(max_order_notional=args.max_order_notional, max_gross_notional=args.max_gross_notional,
-                        max_name_weight=args.max_name_weight, max_drawdown=args.max_drawdown)
+                        max_name_weight=args.max_name_weight, max_sector_weight=args.max_sector_weight,
+                        max_drawdown=args.max_drawdown)
             limits = RiskLimits(**caps) if any(value is not None for value in caps.values()) else None
             result = run(args.prompt, limits=limits, peak_equity=args.peak_equity, execute_paper=args.execute_paper,
                          symbol=args.symbol, decision_key=args.decision_key)

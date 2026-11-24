@@ -76,6 +76,31 @@ def search_index(dsn, index_id, embedding, top_k):
     return [{"chunk": chunk, "score": score} for chunk, score in rows]
 
 
+def search_filing_series(dsn, cik, filings, section, model, dimensions, version, embedding):
+    """Find two excerpts per filing and retain rows for missing indexes."""
+    accessions, filenames = map(list, zip(*filings, strict=True))
+    with _connect(dsn, "filing series search") as conn:
+        conn.execute("SET TRANSACTION READ ONLY")
+        return conn.execute(
+            """
+            SELECT wanted.accession, i.id IS NOT NULL AS indexed, hit.content, hit.score
+            FROM unnest(%s::text[], %s::text[]) WITH ORDINALITY AS wanted(accession, filename, sequence)
+            LEFT JOIN sec.filing_retrieval_index i
+              ON (i.cik, i.accession, i.filename, i.section, i.embedding_model, i.embedding_dimensions, i.chunk_version)
+               = (%s, wanted.accession, wanted.filename, %s, %s, %s, %s)
+            LEFT JOIN LATERAL (
+                SELECT content, ordinal, 1 - (embedding OPERATOR(public.<=>) %s::real[]::public.vector) AS score
+                FROM sec.filing_retrieval_chunk
+                WHERE index_id = i.id
+                ORDER BY score DESC, ordinal
+                LIMIT 2
+            ) hit ON true
+            ORDER BY wanted.sequence, hit.score DESC, hit.ordinal
+            """,
+            (accessions, filenames, cik, section, model, dimensions, version, embedding.tolist()),
+        ).fetchall()
+
+
 def query_facts(dsn, cik, selectors, *, first_end=None, last_end=None, instant=None):
     """Read the latest filing for each matching XBRL context, preserving same-day conflicts."""
     taxonomies, concepts, units = map(list, zip(*selectors, strict=True))

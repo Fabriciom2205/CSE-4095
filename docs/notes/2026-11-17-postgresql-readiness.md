@@ -12,7 +12,7 @@ Verify the shared agent and MCP PostgreSQL filing retrieval path with one comman
 ## Changes Implemented
 
 * [Health check](../../python-brain/init.py) runs read-only filing index and vector queries when a reader is configured. The optional `--postgres TICKER` check requires a PostgreSQL excerpt from a live 10-K.
-* [Integration tests](../../python-brain/test_filing_store.py) exercise the readiness check with the documented database grants.
+* [Integration tests](../../python-brain/tests/test_filing_store.py) exercise the readiness check with the documented database grants.
 * [PostgreSQL setup](../POSTGRESQL.md#enable-persistent-filing-retrieval) documents how to run the check and when it exercises the writer.
 
 ## Key Decisions & Context

@@ -14,7 +14,7 @@ Use existing SEC submissions and archived filing documents to follow a filer acr
 * [SEC client](../../python-brain/sec_client.py) shares submission traversal between the existing latest-filing lookup and the bounded filing timeline. The timeline prunes older archive files by the filing date filter and handles links to ownership-form XML.
 * [Section navigation](../../python-brain/filing_sections.py) follows the filing's own table-of-contents links for 10-K Items and 10-Q Parts. The annual Item 1A diff compares paragraphs from consecutive fiscal years and cites both filings.
 * [MCP tools](../../python-brain/mcp_server.py) and [agent routing](../../python-brain/agent.py) expose the timeline, section excerpts, and annual diff as read-only tools.
-* [Regression tests](../../python-brain/test_filing_navigation.py) cover archived submissions, document links, section boundaries, hidden text, and diff citations. Live SEC checks exercised Apple's timeline, a 10-Q, and annual risk-factor comparisons.
+* [Regression tests](../../python-brain/tests/test_filing_navigation.py) cover archived submissions, document links, section boundaries, hidden text, and diff citations. Live SEC checks exercised Apple's timeline, a 10-Q, and annual risk-factor comparisons.
 
 ## Key Decisions & Context
 
@@ -28,5 +28,5 @@ Use existing SEC submissions and archived filing documents to follow a filer acr
 
 ## Next Steps (Handoff Checklist)
 
-* [ ] Check linked filings from more issuers before extending the parser to filings without linked contents.
-* [ ] Evaluate cross-filing retrieval against the current pgvector schema and define boilerplate deduplication.
+* [x] Check linked filings from more issuers and handle descriptive anchor IDs. [Verification](2026-11-24-backend-deliverables.md)
+* [x] Add temporal retrieval against pgvector with normalized passage deduplication. [Verification](2026-11-24-backend-deliverables.md)

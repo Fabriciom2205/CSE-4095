@@ -1,4 +1,4 @@
--- Apply migration 003, then run: psql -X -v ON_ERROR_STOP=1 -f db/tests/portfolio.sql
+-- Apply migrations 003–005, then run: psql -X -v ON_ERROR_STOP=1 -f db/tests/portfolio.sql
 BEGIN;
 
 DO $$
@@ -9,6 +9,23 @@ BEGIN
                                    equity, cash, buying_power, observed_at)
     VALUES ('alpaca', 'paper', 'test-account', 'ACTIVE', 'USD', 950, 1000, 900, now())
     RETURNING id INTO account_pk;
+
+    INSERT INTO portfolio.equity_snapshot (account_id, observed_at, equity)
+    VALUES (account_pk, now() - interval '120 days', 1200), (account_pk, now() - interval '110 days', 1200),
+           (account_pk, now() - interval '100 days', 800), (account_pk, now() - interval '20 days', 950);
+    IF portfolio.prune_equity_snapshots() <> 2 THEN
+        RAISE EXCEPTION 'Snapshot retention removed an unexpected number of observations';
+    END IF;
+    IF portfolio.prune_equity_snapshots() <> 0 THEN
+        RAISE EXCEPTION 'Snapshot retention is not idempotent';
+    END IF;
+    IF (SELECT max(equity) FROM portfolio.equity_snapshot WHERE account_id = account_pk) <> 1200
+       OR NOT EXISTS (SELECT FROM portfolio.equity_snapshot WHERE account_id = account_pk
+                      AND observed_at = now() - interval '120 days')
+       OR NOT EXISTS (SELECT FROM portfolio.equity_snapshot WHERE account_id = account_pk
+                      AND observed_at = now() - interval '20 days') THEN
+        RAISE EXCEPTION 'Snapshot retention lost the historical peak or recent detail';
+    END IF;
 
     INSERT INTO portfolio.position (account_id, asset_id, asset_class, symbol, side, quantity,
                                     market_value, cost_basis, unrealized_pl, observed_at)

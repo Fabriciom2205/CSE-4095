@@ -81,6 +81,27 @@ python -c 'from agent import sec_query_filing_rag; print(sec_query_filing_rag("M
 SEC_RAG_WRITE_DSN='' python -c 'from agent import sec_query_filing_rag; print(sec_query_filing_rag("MSFT", "What drove changes in operating income this quarter?", form="10-Q", section="mda")["data"]["excerpts"])'
 ```
 
+## Run the backend tests
+
+From the repository root, with the virtual environment active:
+
+```bash
+python -m unittest discover -s python-brain
+```
+
+The suite discovers tests under `python-brain/tests/`. PostgreSQL integration tests require disposable test databases. See the [filing index test setup](POSTGRESQL.md#enable-persistent-filing-retrieval).
+
+Run the opt-in SEC and MCP checks from `python-brain/`. These can call EDGAR and Gemini using your configured credentials.
+
+```bash
+python -m tests.live.sec_smoke
+python -m tests.live.mcp_smoke
+python -m tests.live.security_smoke
+python -m tests.live.research_benchmark MSFT
+```
+
+The research benchmark uses fresh sessions and an in-memory filing index. It checks for both SEC and Finnhub citations and reports cold and warm latency, model usage, and embedding usage. The security smoke check sends synthetic filing passages to the configured Gemini model.
+
 ## Portfolio and strategy tools
 
 For Alpaca, set `ALPACA_API_KEY_ID` and `ALPACA_API_SECRET_KEY` in your local environment or repository `.env`. The default `ALPACA_BASE_URL` points to paper accounts. Launch Python from `python-brain/` to use the client:
@@ -108,13 +129,13 @@ The example uses a fixed universe, a 20-session moving average, a 25% allocation
 
 Use `agent.generate_proposal(prompt, limits=..., peak_equity=...)` from a trusted local Python caller. Supply `risk.RiskLimits` and a positive `Decimal` peak from your account's equity history. Current equity can increase that peak. The proposal session sends equity, the peak, and signed market values to the configured model. The regular research agent and MCP server do not expose these private tools.
 
-The schema accepts up to ten distinct symbols with combined target weights at most one. Each target includes a rationale, SEC accessions, a market timestamp with timezone, and confidence. Validation checks the projected dollar exposure of each named target and retains unlisted holdings. It measures the largest hypothetical dollar change for the order notional cap. A configured sector cap produces an explicit error until sector data is available. Findings do not authorize trades.
+The schema accepts up to ten distinct symbols with combined target weights at most one. Each target includes a rationale, SEC accessions, a market timestamp with timezone, and confidence. Validation checks the projected dollar exposure of each named target and retains unlisted holdings. It measures the largest hypothetical dollar change for the order notional cap. A sector cap uses the issuer's EDGAR SIC code grouped by official industry division and blocks when a required classification is missing. This is an issuer-level grouping. Funds and other instruments are excluded when their issuer classification is unavailable, and the app has no holdings look-through. [SEC SIC codes](https://www.sec.gov/search-filings/standard-industrial-classification-sic-code-list) · [SIC divisions](https://www.osha.gov/data/sic-manual)
 
 `propose.build_orders` is a separate pure helper that sizes hypothetical whole-share buys from cash. The agent does not call it or receive its quantities.
 
 ### Audited paper execution runbook
 
-**Pre-market.** Apply [migration 004 and the portfolio grants](POSTGRESQL.md#audited-paper-execution). Set `MONROE_PORTFOLIO_DSN` for the shared execution database and confirm `ALPACA_BASE_URL=https://paper-api.alpaca.markets`. Configure positive name, gross, order, drawdown, daily count, and daily notional caps in `portfolio.risk_limit`. Sector caps are unsupported and block execution if configured. Seed equity history from verified observations for that account. Operators starting a new tracking interval can deliberately record the current broker observation with `portfolio_agent.py --record-equity`. A baseline recorded today does not recover an earlier peak.
+**Pre-market.** Apply [migration 004 and the portfolio grants](POSTGRESQL.md#audited-paper-execution). Set `MONROE_PORTFOLIO_DSN` for the shared execution database and confirm `ALPACA_BASE_URL=https://paper-api.alpaca.markets`. Configure positive name, gross, order, drawdown, daily count, and daily notional caps in `portfolio.risk_limit`. An optional sector cap uses EDGAR SIC divisions. Seed equity history from verified observations for that account. Operators starting a new tracking interval can deliberately record the current broker observation with `portfolio_agent.py --record-equity`. A baseline recorded today does not recover an earlier peak.
 
 **During the session.** Proposal mode remains the default. Execution accepts only database limits and peak equity. Choose a stable decision key and reuse the exact symbol and prompt on every retry:
 
@@ -144,7 +165,8 @@ Install the repository requirements into the virtual environment. ADK uses the s
 | `MONROE_API_TOKEN` | A random bearer token you generate. Clients send it in the Authorization header. |
 | `MONROE_SESSION_DSN` | An async SQLAlchemy connection URL for a dedicated PostgreSQL session database, for example `postgresql+asyncpg://monroe_sessions@127.0.0.1:5433/monroe_sessions`. ADK initializes its own tables in that database. SQLite file URLs with `sqlite+aiosqlite` work for local evaluation. Create the database file’s parent directory first. |
 | `MONROE_SNAPSHOT_DIR` | Optional directory of saved backtest JSON files. The default is `snapshots` relative to the server working directory. |
-| `MONROE_PEAK_EQUITY` | Required only if a proposal requests a drawdown cap. Supply the trusted historical peak for the Alpaca account. |
+| `MONROE_PORTFOLIO_READ_DSN` | Read-only PostgreSQL connection for HTTP proposal drawdown checks. Uses the stored peak for the signed-in Alpaca account. [Reader grants](POSTGRESQL.md#http-proposal-equity-history). |
+| `MONROE_PEAK_EQUITY` | Operator-supplied historical peak for HTTP proposal drawdown checks when a portfolio reader is absent. |
 
 From the repository root:
 
@@ -154,9 +176,42 @@ From the repository root:
 
 Open `http://127.0.0.1:8000/docs` or fetch `/openapi.json` for the typed contract. Application routes are bearer protected. The health route only checks configuration. Keep this single-operator service on loopback for local development. Use TLS for any remote deployment.
 
+### Research voice input
+
+Send up to 4 MiB of recorded audio bytes to authenticated `POST /research/transcribe`. Set the recording's `Content-Type` to `audio/webm`, `audio/ogg`, `audio/mp4`, `audio/wav`, or `audio/mpeg`. The response is `{"transcript":"…"}`. Let the operator review or edit the transcript, then send it as the existing `question` field on `POST /research`. The server sends audio to the configured Gemini service for transcription and keeps no audio file in the application. Only the submitted question becomes part of the research conversation. [Gemini audio formats](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/audio-understanding)
+
+### Shared MCP access
+
+Keep stdio or loopback for local use. For shared access, set `MONROE_MCP_TOKEN` to a separate random bearer credential of at least 32 characters and set `MONROE_MCP_PUBLIC_URL` to the exact HTTPS origin, for example `https://mcp.example.com`. All transport requests must carry `Authorization: Bearer <token>`. Host and browser Origin checks use the configured public origin. The credential represents a trusted operator with access to the research tool set.
+
+Use a private HTTPS reverse proxy forwarding to the loopback server and preserving the public Host. For a direct non-loopback listener, provide both `--tls-cert` and `--tls-key` with the shared settings. Restrict ingress and apply request limits at the deployment edge. Per-user access requires individual identities at that edge.
+
+### Research tables and charts
+
+Ask for a visual in the current question or set the optional `visual` field to `table`, `bar`, or `line`. For example, send this JSON to `POST /research`.
+
+```json
+{
+  "ticker": "AAPL",
+  "question": "Show Apple's revenue and operating income for the last three fiscal years in a table."
+}
+```
+
+For a chart of the same figures, reuse the response's `session_id` and ask “Plot it.” The optional `visuals` array appears in the JSON response or the SSE `final` event when supported figures are available. It includes a visual kind, column keys, fiscal period rows, units, and cell-level filing sources. Values are decimal strings, missing cells contain `null`, and derived Q4 cells cite their full-year and nine-month inputs. Use the period-end date for the chart's x-axis and the column keys for its series. The current scope is supported balance sheet, income statement, and cash flow lines.
+
 `POST /research` creates a session or continues a returned `session_id`. Send `Accept: text/event-stream` to receive answer deltas and a final event containing the same object as the JSON response. Keep the session ID between turns. `POST /proposals` takes `tickers` and `constraints`, returns validated targets and breach findings, and uses a separate session namespace. Its Alpaca inputs are cached for up to 15 seconds. Alpaca mark freshness is reported as unknown and dated Finnhub quotes older than two minutes are marked stale. Execution remains outside the HTTP API.
 
 To run a backtest, capture an input using the replay CLI above into this directory, for example `snapshots/spy-2025.json`. The request uses the ID `spy-2025` with the strategy settings. The server does not accept a filesystem path.
+
+### Figure disclosures
+
+Ask `POST /research` a question without a ticker to look up disclosures by person or manager:
+
+```json
+{"question":"What did Berkshire Hathaway's holdings reports show changed last quarter?"}
+```
+
+The research agent and MCP server share `sec_figure_disclosures`. Use `kind: "form4"` for reported ownership transactions, such as Jeff Bezos, or `kind: "13f"` for institutional holdings, such as Berkshire Hathaway or Pershing Square. The tool also accepts a filer’s exact SEC CIK. The Buffett alias refers to Berkshire only in 13F lookups. Form 4 rows include the owner, transaction code, transaction date, and filing date. Original and amended Forms 4 are presented as filed. A 13F compares two consecutive reported quarter-end positions and applies supported amendments. Holdings changes do not reveal the exact trades, prices, or decision maker. Congressional reports use a separate filing system and are outside this SEC tool.
 
 ## Common setup failures
 

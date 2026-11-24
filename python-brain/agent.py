@@ -14,6 +14,7 @@ except ImportError:
 import mcp_server
 import google_client
 import portfolio_view
+import portfolio_sectors
 from propose import Proposal, proposal_breaches
 from risk import RiskLimits
 import sec_client
@@ -88,15 +89,24 @@ def sec_risk_factor_diff(ticker: str) -> dict:
 
 
 
-def _memo(func):
-    cached = lru_cache(maxsize=128)(func)
+def _agent_tool(func, *, memoize=True):
+    call = lru_cache(maxsize=128)(func) if memoize else func
 
     @wraps(func)
     def wrapped(*args, **kwargs):
-        return cached(*args, **dict(sorted(kwargs.items())))
+        return call(*args, **dict(sorted(kwargs.items())))
 
     wrapped.__signature__ = signature(func).replace(return_annotation=dict)
     return wrapped
+
+
+def _proposal_findings(proposal, view, limits):
+    sectors = None
+    if limits.max_sector_weight is not None:
+        weights = proposal.target_weights()
+        symbols = {p.symbol for p in view.positions if p.market_value and p.symbol not in weights}
+        sectors = portfolio_sectors.classifications(symbols | {symbol for symbol, weight in weights.items() if weight})
+    return proposal_breaches(proposal, view, limits, sectors=sectors)
 
 
 def create_sec_agent(model: str = "gemini-3.8-flash"):
@@ -108,16 +118,12 @@ def _create_agent(model: str, *, limits: RiskLimits | None = None, peak_equity: 
     client = google_client.create_client()
 
     tools = [
-        _memo(tool_company_research),
-        _memo(sec_query_filing_rag),
-        _memo(sec_get_financial_facts),
-        _memo(sec_company_statement),
-        _memo(sec_relations),
-        _memo(tool_full_text_search),
-        _memo(sec_filings),
-        _memo(mcp_server.sec_filing_section),
-        _memo(sec_risk_factor_diff),
-        *(_memo(tool) for tool in MARKET_DATA_TOOLS),
+        *(_agent_tool(tool) for tool in [
+            tool_company_research, sec_query_filing_rag, sec_get_financial_facts, sec_company_statement,
+            sec_relations, tool_full_text_search, sec_filings, mcp_server.sec_figure_disclosures,
+            mcp_server.sec_filing_section, sec_risk_factor_diff, mcp_server.sec_query_filing_history,
+        ]),
+        *(_agent_tool(tool, memoize=False) for tool in MARKET_DATA_TOOLS),
     ]
 
     system_instruction = (
@@ -127,10 +133,13 @@ def _create_agent(model: str, *, limits: RiskLimits | None = None, peak_equity: 
         "Choose and sequence tools based on the evidence needed. "
         "Use sec_company_statement for core financial figures and sec_get_financial_facts for an exact XBRL concept. "
         "Use sec_relations for reported relationships and dimensions. "
+        "Use sec_figure_disclosures for SEC Form 4 transactions and institutional 13F holdings changes. "
+        "Attribute 13F holdings to the filing manager and never infer exact trade dates, prices or individual decision makers. "
         "Use sec_filings to find a company's filings by date and form. "
         "Use sec_filing_section for an exact filing heading and sec_risk_factor_diff for changes across annual filings. "
         "Use sec_full_text_search to discover which filings mention a topic. "
         "Use sec_query_filing_rag for narrative evidence in the identified filing or a focused section of the latest filing. "
+        "Use sec_query_filing_history for narrative across report periods and disclose gaps in indexed coverage. "
         "Use sec_company_research for broad narrative research on the latest annual filing. "
         "Cite both source accessions for a derived Q4 and say when evidence is unavailable. "
         "For prices, quotes, news, valuation metrics, or earnings dates, use the massive_ and finnhub_ market data tools; "
@@ -141,10 +150,14 @@ def _create_agent(model: str, *, limits: RiskLimits | None = None, peak_equity: 
 
     config_options = {}
     if limits is not None:
+        @lru_cache(maxsize=1)
+        def proposal_snapshot():
+            return portfolio_view.read_portfolio(peak_equity)
+
         @mcp_server.tool_errors
         def portfolio_snapshot() -> dict:
             """Read current portfolio market values, USD equity, and historical equity peak."""
-            view = portfolio_view.read_portfolio(peak_equity)
+            view = proposal_snapshot()
             data = {"equity": str(view.equity), "peak_equity": str(view.peak_equity),
                     "positions": [{"symbol": p.symbol, "market_value": str(p.market_value)} for p in view.positions]}
             return mcp_server.untrusted_data(data, source="Alpaca")
@@ -156,7 +169,7 @@ def _create_agent(model: str, *, limits: RiskLimits | None = None, peak_equity: 
                 proposal = Proposal.model_validate_json(proposal_json)
             except ValidationError:
                 raise ValueError("Invalid proposal schema or target weights") from None
-            findings = proposal_breaches(proposal, portfolio_view.read_portfolio(peak_equity), limits)
+            findings = _proposal_findings(proposal, proposal_snapshot(), limits)
             return {"breaches": [{**asdict(b), "actual": str(b.actual), "maximum": str(b.maximum)} for b in findings]}
 
         tools.extend([portfolio_snapshot, validate_proposal])
@@ -187,8 +200,6 @@ def generate_proposal(prompt: str, *, limits: RiskLimits, peak_equity: Decimal,
     """Run a private proposal session and validate the model's final output locally."""
     if not isinstance(limits, RiskLimits):
         raise ValueError("Trusted portfolio risk limits are required")
-    if limits.max_sector_weight is not None:
-        raise ValueError("Sector cap cannot be evaluated without sector classifications")
     if not isinstance(peak_equity, Decimal) or not peak_equity.is_finite() or peak_equity <= 0:
         raise ValueError("A positive historical peak equity is required")
     chat = _create_agent(model, limits=limits, peak_equity=peak_equity)
@@ -197,7 +208,7 @@ def generate_proposal(prompt: str, *, limits: RiskLimits, peak_equity: Decimal,
     except ValidationError:
         raise ValueError("Model returned an invalid proposal") from None
     if proposal.targets:
-        findings = proposal_breaches(proposal, portfolio_view.read_portfolio(peak_equity), limits)
+        findings = _proposal_findings(proposal, portfolio_view.read_portfolio(peak_equity), limits)
         if findings:
             raise ValueError("Proposal breaches " + ", ".join(sorted({finding.limit for finding in findings})))
     return proposal

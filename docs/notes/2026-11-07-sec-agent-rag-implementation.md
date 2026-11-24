@@ -16,7 +16,7 @@ Implement a lightweight SEC EDGAR agentic search and retrieval subsystem in Pyth
 * [`python-brain/sec_client.py`](../../python-brain/sec_client.py): Programmatic client for SEC.gov with User-Agent header validation, token-bucket/timestamp rate limiting (max 10 req/s), exponential backoff on HTTP 429, CIK resolution via `company_tickers.json`, full-text search via `efts.sec.gov`, raw filing text extraction via reconstructed archive URLs, and XBRL company facts.
 * [`python-brain/filing_rag.py`](../../python-brain/filing_rag.py): Document processing pipeline using BeautifulSoup to sanitize HTML, sliding-window paragraph chunking, vector embedding generation via Gemini (`text-embedding-004`), and cosine similarity retrieval over in-memory NumPy matrices.
 * [`python-brain/agent.py`](../../python-brain/agent.py): Gemini agent factory via `google-genai` registering SEC tools and automatic function calling.
-* [`python-brain/test_sec_tools.py`](../../python-brain/test_sec_tools.py): Assert-based unit tests for HTML cleaning, chunking, archive URL reconstruction, and vector similarity calculations.
+* [`python-brain/test_sec_tools.py`](../../python-brain/tests/live/sec_smoke.py): Assert-based unit tests for HTML cleaning, chunking, archive URL reconstruction, and vector similarity calculations.
 * [`python-brain/requirements.txt`](../../python-brain/requirements.txt): Minimal dependencies (`google-genai`, `requests`, `beautifulsoup4`, `numpy`).
 
 ---

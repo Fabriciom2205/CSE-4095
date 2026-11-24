@@ -11,7 +11,7 @@ from typing import Annotated, TYPE_CHECKING
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
 
-from risk import Breach, Position, RiskLimits, check_limits
+from risk import Breach, Position, RiskLimits, check_limits, classified_positions
 
 if TYPE_CHECKING:
     from portfolio_view import PortfolioView
@@ -116,10 +116,8 @@ def build_orders(target_weights: Mapping[str, Decimal], equity: Decimal,
     return tuple(orders)
 
 
-def proposal_breaches(proposal: Proposal, view: PortfolioView, limits: RiskLimits) -> tuple[Breach, ...]:
+def proposal_breaches(proposal: Proposal, view: PortfolioView, limits: RiskLimits, *, sectors=None) -> tuple[Breach, ...]:
     """Check projected exposures and the largest dollar change to a named holding."""
-    if limits.max_sector_weight is not None:
-        raise ValueError("Sector cap cannot be evaluated without sector classifications")
     weights = proposal.target_weights()
     with localcontext(Context(prec=64)):
         projected = [position for position in view.positions if position.symbol not in weights]
@@ -128,5 +126,8 @@ def proposal_breaches(proposal: Proposal, view: PortfolioView, limits: RiskLimit
             target_value = view.equity * weight
             current_value = sum((p.market_value for p in view.positions if p.symbol == symbol), Decimal(0))
             largest_change = max(largest_change, abs(target_value - current_value))
-            projected.append(Position(symbol, None, target_value))
+            existing_sector = next((p.sector for p in view.positions if p.symbol == symbol and p.sector), None)
+            projected.append(Position(symbol, existing_sector, target_value))
+        if limits.max_sector_weight is not None:
+            projected = classified_positions(projected, sectors or {})
         return check_limits(projected, view.equity, view.peak_equity, limits, order_notional=largest_change)

@@ -74,7 +74,7 @@ class ProposalTests(unittest.TestCase):
         view = PortfolioView(D(1000), D(1000), ())
         result = Mock(text=json.dumps({"targets": [TARGET]}))
         with patch.object(agent.google_client, "create_client") as create_client, \
-             patch("portfolio_view.read_portfolio", return_value=view):
+             patch("portfolio_view.read_portfolio", return_value=view) as read:
             client = create_client.return_value
             client.chats.create.return_value.send_message.return_value = result
             proposal = agent.generate_proposal("test", limits=RiskLimits(), peak_equity=D(1000))
@@ -85,6 +85,7 @@ class ProposalTests(unittest.TestCase):
             self.assertEqual((snapshot.__name__, validate.__name__), ("portfolio_snapshot", "validate_proposal"))
             self.assertEqual(snapshot()["data"], {"equity": "1000", "peak_equity": "1000", "positions": []})
             self.assertEqual(validate(result.text), {"breaches": []})
+            self.assertEqual(read.call_count, 2)
             with self.assertRaisesRegex(ValueError, "Proposal breaches max_name_weight"):
                 agent.generate_proposal("test", limits=RiskLimits(max_name_weight=D(".1")), peak_equity=D(1000))
             result.text = '{"targets":[{"quantity":4}]}'

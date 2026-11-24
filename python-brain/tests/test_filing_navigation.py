@@ -70,6 +70,17 @@ class FilingNavigationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unique linked heading"):
             filing_sections._section_blocks("<h2>Item 1A. Risk Factors</h2>", "item 1a")
 
+    def test_descriptive_fragments_supply_missing_numbers(self):
+        html = ('<a href="#part_ii_other_information">OTHER INFORMATION</a>'
+                '<a href="#item_1a_risk_factors">Risk Factors</a>'
+                '<a href="#item2_sales">Sales</a><a href="#signature">SIGNATURES</a>'
+                '<div id="part_ii_other_information">Part II</div>'
+                '<h2 id="item_1a_risk_factors">Risk Factors</h2><p>Contingencies</p>'
+                '<h2 id="item2_sales">Sales</h2><p>Unregistered sales</p>'
+                '<div id="signature">Signed</div>')
+        self.assertEqual(filing_sections._section_blocks(html, "item 1a"), ["Risk Factors", "Contingencies"])
+        self.assertNotIn("Signed", filing_sections._section_blocks(html, "part ii"))
+
 
 if __name__ == "__main__":
     unittest.main()

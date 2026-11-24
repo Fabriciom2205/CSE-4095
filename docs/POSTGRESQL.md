@@ -39,6 +39,28 @@ GRANT UPDATE (state, broker_order_id, broker_status, updated_at, settled_at)
 
 Set `MONROE_PORTFOLIO_DSN` to a libpq connection string for this login. Use the numeric account ID from `--record-equity` to configure its existing `portfolio.risk_limit` row. Store the daily limits in `max_daily_orders` and `max_daily_notional`. The [runbook](LOCAL_SETUP.md#audited-paper-execution-runbook) describes initialization, retries, halt, and reconciliation. Integration tests use `MONROE_PORTFOLIO_TEST_DSN` and insert fixture rows. Point it only at a disposable database.
 
+### HTTP proposal equity history
+
+Set `MONROE_PORTFOLIO_READ_DSN` for the API and grant its login access to the account identity and equity observations from migration 004.
+
+```sql
+GRANT USAGE ON SCHEMA portfolio TO portfolio_reader;
+GRANT SELECT (id, provider, environment, external_account_id, currency) ON portfolio.account TO portfolio_reader;
+GRANT SELECT (account_id, observed_at, equity) ON portfolio.equity_snapshot TO portfolio_reader;
+```
+
+The API reads the peak for the current Alpaca account and environment through the portfolio snapshot time. Populate history through the separately authorized recorder. A missing or unavailable configured history blocks drawdown checks. An operator-supplied peak remains available for setups without the database reader.
+
+### Equity snapshot retention
+
+Apply `db/migrations/005_equity_retention.sql` after migration 004. A database owner or dedicated maintenance role can run the following statement on a daily schedule.
+
+```sql
+SELECT portfolio.prune_equity_snapshots();
+```
+
+The function keeps 90 days of detailed equity observations and the oldest occurrence of the largest pre-window equity value for each account. That anchor preserves the historical peak used by current risk checks. Historical equity queries before the window have reduced detail. The function leaves decisions, order intents, and fills outside this retention policy. Runners and API readers keep their existing privileges. A dedicated maintenance login needs schema usage, function execute, and select and delete access on `portfolio.equity_snapshot`.
+
 ## Local database
 
 Set the standard libpq connection variables for the database you created. Use a prompt for migration credentials and a protected [password file](https://www.postgresql.org/docs/current/libpq-pgpass.html) for unattended imports. The importer uses `PGDATABASE` as a database name and accepts the other standard `PG*` settings.
@@ -54,6 +76,8 @@ Install the existing Python requirements and set `SEC_USER_AGENT` with a real co
 ```bash
 read -r -p "Company ticker: " TICKER
 PGUSER=sec_writer python python-brain/ingest_sec.py "$TICKER" --latest-auditor
+PGUSER=sec_writer python python-brain/ingest_sec.py "$TICKER" --auditor-filings 5
+PGUSER=sec_writer python python-brain/ingest_sec.py "$TICKER" --dimensions-form 10-K
 PGUSER=sec_writer python python-brain/ingest_sec.py "$TICKER" us-gaap:Assets us-gaap:NetIncomeLoss
 psql -X -c "SELECT id, label FROM sec.node WHERE kind = 'company';"
 ```
@@ -64,11 +88,15 @@ Run the sample queries with an actual company node ID and a filing date cutoff:
 PGUSER=sec_reader psql -X -v ON_ERROR_STOP=1 -v company_id=1 -v as_of=2025-12-31 -f db/research.sql
 ```
 
-The importer reads selected Company Facts histories with exact decimal parsing. It preserves differing observations and can replay a batch without duplicating assertions. The optional auditor load reads the latest original 10-K only. Historical auditor changes require ingesting historical filings. Auditor keys currently normalize only whitespace and case, so firm aliases may need reconciliation. The [SEC Company Facts API](https://www.sec.gov/search-filings/edgar-application-programming-interfaces) covers standard tags that apply to the whole filing entity. Use the [Financial Statement and Notes Data Sets](https://www.sec.gov/data-research/sec-markets-data/financial-statement-notes-data-sets) and their dimension metadata for a future segment loader. Retain the full dimension context, including every axis and member, rather than matching on a display label.
+The importer reads selected Company Facts histories with exact decimal parsing. It preserves differing observations and can replay a batch without duplicating assertions. `--latest-auditor` reads the latest original 10-K. `--auditor-filings N` reads up to 20 original 10-Ks and stores each directly tagged auditor with the filing that reported it. Auditor keys currently normalize whitespace and case.
+
+`--dimensions-form` reads the extracted XBRL instance for the latest original 10-K or 10-Q. It stores standard US GAAP monetary observations tagged on recognized segment and geographic axes with their full explicit dimension context, units, exact dates, and accession. Use `sec_relations` for these historical assertions. Coverage varies with issuer tagging. Custom fact concepts and typed members require additional support, and overlapping contexts may represent the same figure.
 
 ## Enable persistent filing retrieval
 
 With your existing PostgreSQL connection settings or Cloud SQL Auth Proxy, run migration 002 as the migration administrator after migration 001. Cloud SQL provides pgvector as the `vector` extension. A local PostgreSQL installation needs the pgvector extension files installed. Migration 002 uses the extension in the `public` schema. [Cloud SQL extension support](https://docs.cloud.google.com/sql/docs/postgres/extensions) · [pgvector installation](https://github.com/pgvector/pgvector#installation)
+
+`sec_query_filing_history` searches the stored indexes for the latest 2–8 original 10-K and 10-Q report periods using one query embedding. It reports which periods have an index and groups matching passages that differ only by case or whitespace, retaining the filing accessions. Seed missing indexes for the requested section by running the existing single-filing retrieval tool with the index writer configured. A missing index is a coverage gap.
 
 ```bash
 psql -X -v ON_ERROR_STOP=1 -f db/migrations/002_filing_retrieval.sql

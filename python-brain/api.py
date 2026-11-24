@@ -14,14 +14,18 @@ from typing import Annotated, Literal
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, StringConstraints, model_serializer
 
 import alpaca_client
 import backtest
+import portfolio_store
+import portfolio_sectors
 import sec_client
+import voice
 from adk_runtime import AdkRuntime, Citation
 from portfolio_view import PortfolioView
 from propose import SYMBOL, Target, UnitFraction, proposal_breaches
+from research_visuals import ResearchVisual, VisualKind, VisualTurn, requested_visual
 from risk import Position, RiskLimits, concentration
 from strategy import Strategy
 
@@ -58,18 +62,32 @@ class Filings(BaseModel):
 
 
 class ResearchRequest(Payload):
-    ticker: Symbol
-    question: str = Field(min_length=1, max_length=2000)
+    ticker: Symbol | None = None
+    question: str = Field(min_length=1, max_length=voice.MAX_QUESTION_LENGTH)
     session_id: SessionID | None = None
+    visual: VisualKind | None = Field(default=None, description="Explicitly request a table, bar chart, or line chart.")
 
 
 class ResearchResponse(BaseModel):
     session_id: SessionID
     answer: str
     citations: list[Citation]
+    visuals: list[ResearchVisual] | None = Field(default=None, description="Structured visuals for this turn, when requested and supported by data.")
+
+    @model_serializer(mode="wrap")
+    def omit_absent_visuals(self, serialize):
+        data = serialize(self)
+        if self.visuals is None:
+            data.pop("visuals", None)
+        return data
+
+
+class Transcription(BaseModel):
+    transcript: str = Field(min_length=1, max_length=voice.MAX_QUESTION_LENGTH)
 
 
 class Account(BaseModel):
+    _external_account_id: str | None = PrivateAttr(default=None)
     environment: str
     status: str
     currency: str
@@ -192,7 +210,9 @@ def _filings(q, ticker, form):
 
 
 def _portfolio():
-    account = Account.model_validate(alpaca_client.get_account())
+    raw_account = alpaca_client.get_account()
+    account = Account.model_validate(raw_account)
+    account._external_account_id = raw_account.get("external_account_id")
     positions = [Holding.model_validate(p) for p in alpaca_client.get_positions()]
     exposure = None
     if all(p.market_value is not None for p in positions):
@@ -280,6 +300,31 @@ def create_app(runtime=None) -> FastAPI:
 
     auth = [Depends(authenticate)]
 
+    @app.post("/research/transcribe", response_model=Transcription, dependencies=auth,
+              openapi_extra={"requestBody": {"required": True, "content": {
+                  mime: {"schema": {"type": "string", "format": "binary"}} for mime in sorted(voice.AUDIO_TYPES)
+              }}})
+    async def transcribe(request: Request, response: Response):
+        """Transcribe a recording for the operator to review and submit as a research question."""
+        mime = request.headers.get("content-type", "").partition(";")[0].strip().lower()
+        if mime not in voice.AUDIO_TYPES:
+            raise HTTPException(415, "Unsupported audio format")
+        audio = bytearray()
+        async for chunk in request.stream():
+            if len(audio) + len(chunk) > voice.MAX_AUDIO_BYTES:
+                raise HTTPException(413, "Audio recording exceeds 4 MiB")
+            audio.extend(chunk)
+        if not audio:
+            raise HTTPException(422, "Audio recording is empty")
+        try:
+            transcript = await asyncio.to_thread(voice.transcribe_question, bytes(audio), mime)
+        except Exception:
+            raise HTTPException(502, "Transcription unavailable") from None
+        if not transcript or len(transcript) > voice.MAX_QUESTION_LENGTH:
+            raise HTTPException(422, "The recording must contain a short, intelligible question")
+        response.headers["Cache-Control"] = "no-store"
+        return Transcription(transcript=transcript)
+
     @app.get("/filings", response_model=Filings, dependencies=auth)
     async def filings(q: Annotated[str, Query(max_length=2000)] = "",
                       ticker: Symbol | None = None,
@@ -299,26 +344,35 @@ def create_app(runtime=None) -> FastAPI:
         """Return JSON, or SSE when Accept is text/event-stream.
 
         Delta events contain {"text": "..."}; final contains the JSON response
-        including session_id and citations; error contains {"detail": "..."}.
+        including session_id, citations and any requested visuals; error contains {"detail": "..."}.
         """
         service = get_runtime()
         session_id = await get_session(service, service.research, data.session_id)
-        message = f"Ticker: {data.ticker}\nQuestion: {data.question}"
+        message = (f"Ticker: {data.ticker}\n" if data.ticker else "") + f"Question: {data.question}"
+        kind = data.visual or requested_visual(data.question)
+        visual = VisualTurn(kind) if kind else None
+        if visual:
+            message = f"Requested visual: {visual.kind}\n{message}"
+        options = {"visual": visual} if visual else {}
+
+        def result(value):
+            return ResearchResponse(session_id=session_id, answer=value[0], citations=value[1],
+                                    visuals=visual.visuals if visual and visual.visuals else None)
+
         if "text/event-stream" in request.headers.get("accept", ""):
             async def stream():
                 try:
-                    async with aclosing(service.events(service.research, session_id, message, stream=True)) as events:
+                    async with aclosing(service.events(service.research, session_id, message, stream=True, **options)) as events:
                         async for kind, value in events:
-                            payload = (ResearchResponse(session_id=session_id, answer=value[0], citations=value[1]).model_dump(mode="json")
-                                       if kind == "final" else {"text": value})
+                            payload = result(value).model_dump(mode="json") if kind == "final" else {"text": value}
                             yield f"event: {kind}\ndata: {json.dumps(payload)}\n\n"
                 except Exception:
                     yield 'event: error\ndata: {"detail":"Research unavailable"}\n\n'
             return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
         try:
-            async for kind, value in service.events(service.research, session_id, message):
+            async for kind, value in service.events(service.research, session_id, message, **options):
                 if kind == "final":
-                    return ResearchResponse(session_id=session_id, answer=value[0], citations=value[1])
+                    return result(value)
         except Exception:
             raise HTTPException(502, "Research unavailable") from None
         raise HTTPException(502, "Research did not return a response")
@@ -330,12 +384,11 @@ def create_app(runtime=None) -> FastAPI:
     @app.post("/proposals", response_model=Proposals, dependencies=auth)
     async def proposals(data: ProposalRequest):
         limits = RiskLimits(**data.constraints.model_dump())
-        if limits.max_sector_weight is not None:
-            raise HTTPException(422, "Sector cap cannot be evaluated without sector classifications")
         if len(set(data.tickers)) != len(data.tickers):
             raise HTTPException(422, "Proposal symbols must be distinct")
         peak = None
-        if limits.max_drawdown is not None:
+        use_history = limits.max_drawdown is not None and bool(os.getenv("MONROE_PORTFOLIO_READ_DSN"))
+        if limits.max_drawdown is not None and not use_history:
             try:
                 peak = Decimal(os.getenv("MONROE_PEAK_EQUITY", ""))
                 if not peak.is_finite() or peak <= 0:
@@ -344,6 +397,27 @@ def create_app(runtime=None) -> FastAPI:
                 raise HTTPException(503, "Trusted historical peak equity is required for drawdown") from None
         service = get_runtime()
         session_id = await get_session(service, service.proposals, data.session_id)
+        snapshot = await portfolio_data()
+        if snapshot.exposure is None:
+            raise HTTPException(422, "A position is missing a market value")
+
+        async def stored_peak(state):
+            try:
+                return await asyncio.to_thread(portfolio_store.read_peak_equity, state.account.environment,
+                                               state.account._external_account_id, state.retrieved_at)
+            except ValueError:
+                raise HTTPException(503, "Trusted historical peak equity is required for drawdown") from None
+
+        async def stored_sectors(state):
+            symbols = set(data.tickers) | {row.symbol for row in state.positions if row.market_value}
+            try:
+                return await asyncio.to_thread(portfolio_sectors.classifications, symbols)
+            except ValueError as error:
+                raise HTTPException(422, str(error)) from None
+
+        if use_history:
+            peak = await stored_peak(snapshot)
+        sectors = await stored_sectors(snapshot) if limits.max_sector_weight is not None else None
         try:
             proposal = await service.proposal(session_id, data.tickers, data.constraints.model_dump(mode="json"))
         except Exception:
@@ -351,11 +425,15 @@ def create_app(runtime=None) -> FastAPI:
         state = await portfolio_data()
         if state.exposure is None:
             raise HTTPException(422, "A position is missing a market value")
+        if use_history and snapshot.retrieved_at != state.retrieved_at:
+            peak = await stored_peak(state)
+        if sectors is not None and snapshot.retrieved_at != state.retrieved_at:
+            sectors = await stored_sectors(state)
         equity = state.account.equity
         view = PortfolioView(equity, max(equity, peak or equity), tuple(
             Position(row.symbol, None, row.market_value) for row in state.positions
         ))
-        findings = proposal_breaches(proposal, view, limits)
+        findings = proposal_breaches(proposal, view, limits, sectors=sectors)
         now = datetime.now(timezone.utc)
         quotes = [QuoteFreshness(symbol=t.symbol, as_of=t.evidence.market_as_of, status=(
             "fresh" if 0 <= (now - t.evidence.market_as_of).total_seconds() <= QUOTE_SECONDS else "stale"

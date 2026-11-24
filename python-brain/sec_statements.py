@@ -140,22 +140,37 @@ def _statement_lines(rows, mapping, end, period, instant, unit):
 
 
 def company_statement(cik, statement, period_end, period, currency):
+    return company_statements(cik, statement, [(period_end, period)], currency)[0]
+
+
+def company_statements(cik, statement, periods, currency, *, line_items=()):
+    """Read several fiscal periods with one SQL lookup and one read-through fallback."""
     cik = sec_client._validate_cik(cik)
     if statement not in STATEMENTS:
         raise ValueError("Statement must be balance_sheet, income_statement, or cash_flow")
-    if period not in ("annual", "quarter", "q4"):
+    if not 1 <= len(periods) <= 8:
+        raise ValueError("Provide one to eight fiscal periods")
+    if any(period not in ("annual", "quarter", "q4") for _, period in periods):
         raise ValueError("Period must be annual, quarter (Q1–Q3), or q4")
     if not re.fullmatch(r"[A-Z]{3}", currency):
         raise ValueError("Currency must be a three-letter uppercase code")
-    end = date.fromisoformat(period_end)
     instant = statement == "balance_sheet"
     mapping = STATEMENTS[statement]
+    if line_items:
+        if any(name not in mapping for name in line_items):
+            raise ValueError(f"Available lines: {', '.join(mapping)}")
+        mapping = {name: mapping[name] for name in line_items}
+    periods = [(date.fromisoformat(end), period) for end, period in periods]
+    first_end = min(end - timedelta(days=105) if period == "q4" and not instant else end for end, period in periods)
+    last_end = max(end for end, _ in periods)
     selectors = list(dict.fromkeys((*tag.split(":"), currency) for tags in mapping.values() for tag in tags))
-    first_end = end - timedelta(days=105) if period == "q4" and not instant else end
-    rows = _read_facts(cik, selectors, first_end=first_end, last_end=end, instant=instant)
-    lines = _statement_lines(rows, mapping, end, period, instant, currency)
-    if any(line["value"] is None for line in lines.values()):
-        rows = list(_edgar_rows(cik, selectors, first_end, end, instant))
-        edgar = _statement_lines(rows, mapping, end, period, instant, currency)
-        lines = {name: line if line["value"] is not None else lines[name] for name, line in edgar.items()}
-    return {"cik": cik, "statement": statement, "period": period, "period_end": end.isoformat(), "lines": lines}
+    rows = _read_facts(cik, selectors, first_end=first_end, last_end=last_end, instant=instant)
+    series = [_statement_lines(rows, mapping, end, period, instant, currency) for end, period in periods]
+    if any(line["value"] is None for lines in series for line in lines.values()):
+        edgar = list(_edgar_rows(cik, selectors, first_end, last_end, instant))
+        for (end, period), lines in zip(periods, series, strict=True):
+            if any(line["value"] is None for line in lines.values()):
+                fallback = _statement_lines(edgar, mapping, end, period, instant, currency)
+                lines.update((name, line) for name, line in fallback.items() if line["value"] is not None)
+    return [{"cik": cik, "statement": statement, "period": period, "period_end": end.isoformat(), "lines": lines}
+            for (end, period), lines in zip(periods, series, strict=True)]

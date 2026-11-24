@@ -20,6 +20,28 @@ def digest(value):
     return sha256(json.dumps(json_data(value), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def read_peak_equity(environment, external_account_id, as_of):
+    """Read trusted observations for the brokerage account using the API's reader role."""
+    dsn = os.getenv("MONROE_PORTFOLIO_READ_DSN")
+    if not dsn or not external_account_id:
+        raise ValueError("Portfolio equity reader and brokerage account identity are required")
+    try:
+        with psycopg.connect(dsn, autocommit=True, connect_timeout=5) as conn:
+            conn.execute("SET statement_timeout = '5s'")
+            peak, = conn.execute(
+                """SELECT max(s.equity)
+                   FROM portfolio.account a JOIN portfolio.equity_snapshot s ON s.account_id = a.id
+                   WHERE a.provider = 'alpaca' AND a.environment = %s AND a.external_account_id = %s
+                     AND a.currency = 'USD' AND s.observed_at <= %s""",
+                (environment, external_account_id, as_of),
+            ).fetchone()
+    except psycopg.Error:
+        raise ValueError("Portfolio equity history unavailable") from None
+    if peak is None:
+        raise ValueError("Seed trusted equity history for this brokerage account")
+    return peak
+
+
 @contextmanager
 def connect():
     dsn = os.getenv("MONROE_PORTFOLIO_DSN")
@@ -69,8 +91,6 @@ class Ledger:
             raise ValueError("Configure trusted database risk limits for this paper account")
         order_count, notional = row["max_daily_orders"], row["max_daily_notional"]
         limits = RiskLimits(**{key: row[key] for key in RiskLimits.__dataclass_fields__})
-        if limits.max_sector_weight is not None:
-            raise ValueError("Sector cap cannot be evaluated without sector classifications")
         if any(value is None or value <= 0 for value in (
             order_count, notional, limits.max_drawdown, limits.max_name_weight,
             limits.max_gross_notional, limits.max_order_notional,

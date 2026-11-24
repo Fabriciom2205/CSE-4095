@@ -1,4 +1,7 @@
 """Offline regression checks for SEC research tools."""
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from time import sleep
 import unittest
 import gc
 import json
@@ -20,7 +23,7 @@ import sec_client
 
 AGENT_TOOLS = ["sec_company_research", "sec_query_filing_rag", "sec_get_financial_facts",
                "sec_company_statement", "sec_relations", "sec_full_text_search",
-               "sec_filings", "sec_filing_section", "sec_risk_factor_diff",
+               "sec_filings", "sec_figure_disclosures", "sec_filing_section", "sec_risk_factor_diff", "sec_query_filing_history",
                "massive_previous_close", "massive_daily_bars", "massive_ticker_details", "finnhub_quote",
                "finnhub_company_news", "finnhub_basic_financials", "finnhub_earnings_calendar"]
 
@@ -87,6 +90,16 @@ class ResearchTests(unittest.TestCase):
             other_tools[1](ticker="test", question="risk", form="10-Q")
             self.assertEqual(rag.call_count, 2)
 
+    def test_market_quotes_refresh_in_the_same_chat(self):
+        with patch.object(agent.google_client, "create_client") as create_client, \
+             patch("market_data.finnhub_quote", side_effect=[{"price": 100}, {"price": 110}]) as quote:
+            agent.create_sec_agent()
+            tools = create_client.return_value.chats.create.call_args.kwargs["config"].tools
+            tool = next(tool for tool in tools if tool.__name__ == "finnhub_quote")
+            self.assertEqual(tool("NVDA")["data"]["price"], 100)
+            self.assertEqual(tool("NVDA")["data"]["price"], 110)
+            self.assertEqual(quote.call_count, 2)
+
     def test_rag_accepts_a_discovered_filing_without_resolving_latest(self):
         with patch.object(sec_client, "latest_filing") as latest, \
              patch.object(mcp_server, "sec_query_filing_rag") as rag:
@@ -107,6 +120,29 @@ class ResearchTests(unittest.TestCase):
         self.assertIn("evidence", excerpt)
         self.assertEqual(find.call_args.args[0], "reader")
         fetch.assert_called_once()
+
+    def test_concurrent_filing_misses_share_one_document_index(self):
+        start = Barrier(2)
+
+        def query(question):
+            start.wait(timeout=5)
+            return filing_rag.query_filing_rag("1", "0000000001-25-000002", "same.htm", question, Mock())
+
+        def embed(client, texts, **kwargs):
+            if texts == ["evidence"]:
+                sleep(.05)
+            return np.ones((len(texts), 1), dtype=np.float32)
+
+        with patch.dict(os.environ, {"SEC_DB_READ_DSN": "", "SEC_RAG_READ_DSN": "", "SEC_RAG_WRITE_DSN": ""}), \
+             patch.dict(filing_rag._filing_indices, clear=True), \
+             patch.object(sec_client, "tool_fetch_filing_text", return_value="filing") as fetch, \
+             patch.object(filing_rag, "clean_and_chunk_html", return_value=["evidence"]), \
+             patch.object(filing_rag, "get_batch_embeddings", side_effect=embed) as embeddings, \
+             ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(query, ["risk", "growth"]))
+        self.assertTrue(all("evidence" in result for result in results))
+        fetch.assert_called_once()
+        self.assertEqual(embeddings.call_count, 3)
 
     def test_embeddings_use_1536_dimensions_for_documents_and_queries(self):
         client = Mock()

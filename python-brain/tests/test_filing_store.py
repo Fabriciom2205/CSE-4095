@@ -95,6 +95,27 @@ class FilingStoreTests(unittest.TestCase):
         index_id = filing_store.find_index(READ_DSN, self.key)
         self.assertEqual(filing_store.search_index(READ_DSN, index_id, self.vector, 1)[0]["chunk"], "valid retry")
 
+    def test_series_reuses_query_embedding_and_reports_gaps_and_repeated_text(self):
+        prior, missing = "0000320193-23-000001", "0000320193-23-000002"
+        rows = [
+            {"accession_number": accession, "filename": self.filename, "report_date": day, "filing_date": day}
+            for accession, day in ((ACCESSION, "2023-09-30"), (prior, "2023-06-30"), (missing, "2023-03-31"))
+        ]
+        filing_store.publish_index(WRITE_DSN, self.key, ["Recurring risk.", "New exposure."], [self.vector, self.vector])
+        filing_store.publish_index(WRITE_DSN, (CIK, prior, *self.key[2:]), ["Recurring  risk."], [self.vector])
+        client = Mock()
+        client.models.embed_content.return_value = Mock(embeddings=[Mock(values=self.vector.tolist())])
+        with (patch.dict(os.environ, {"SEC_RAG_READ_DSN": READ_DSN}),
+              patch.object(sec_client, "resolve_cik", return_value=CIK),
+              patch.object(sec_client, "filing_timeline", side_effect=[{"filings": rows[:1]}, {"filings": rows[1:]}]),
+              patch.object(sec_client, "tool_fetch_filing_text") as fetch):
+            result = filing_rag.query_filing_history("AAPL", "Which risks changed?", client, "risk_factors", 3)
+        self.assertEqual([row["indexed"] for row in result["filings"]], [True, True, False])
+        self.assertEqual([row["text"] for row in result["excerpts"]], ["Recurring risk.", "New exposure."])
+        self.assertEqual([m["accession"] for m in result["excerpts"][0]["matches"]], [ACCESSION, prior])
+        fetch.assert_not_called()
+        client.models.embed_content.assert_called_once()
+
     def test_embedding_failure_leaves_no_index(self):
         with (
             patch.dict(os.environ, {"SEC_RAG_READ_DSN": READ_DSN, "SEC_RAG_WRITE_DSN": WRITE_DSN}),

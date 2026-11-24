@@ -26,7 +26,7 @@
   * Updated system prompt identity to reflect "The Monroe Fund's expert financial research agent".
 * [`python-brain/filing_rag.py`](../../python-brain/filing_rag.py): Integrated dotenv loader to ensure model overrides (`GEMINI_EMBEDDING_MODEL`) are read dynamically from `.env`.
 * [`python-brain/sec_client.py`](../../python-brain/sec_client.py): Integrated dotenv loader and updated default `SEC_USER_AGENT` fallback to `TheMonroeFund research@themonroefund.com`.
-* [`python-brain/test_sec_tools.py`](../../python-brain/test_sec_tools.py): Added automated test assertions for SEC default branding and API key validation.
+* [`python-brain/test_sec_tools.py`](../../python-brain/tests/live/sec_smoke.py): Added automated test assertions for SEC default branding and API key validation.
 * [`README.md`](../../README.md): Updated project title and summary to **The Monroe Fund** and added an Environment Configuration quick-start section.
 * [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md): Renamed title and system overview to **The Monroe Fund**.
 * [`docs/decisions/0001-polyglot-trading-platform-architecture.md`](../decisions/0001-polyglot-trading-platform-architecture.md): Updated ADR 0001 to specify The Monroe Fund.

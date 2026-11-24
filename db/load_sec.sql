@@ -32,7 +32,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO sec.node (kind, key, label, cik)
 SELECT 'company', c.cik, c.name, c.cik
 FROM sec_batch b CROSS JOIN LATERAL jsonb_to_record(b.payload->'company') AS c(cik text, name text)
-WHERE jsonb_array_length(b.payload->'auditors') > 0
+WHERE jsonb_array_length(b.payload->'auditors') > 0 OR jsonb_array_length(b.payload->'dimensions') > 0
 ON CONFLICT (kind, key) DO UPDATE SET label = excluded.label, cik = excluded.cik;
 
 INSERT INTO sec.node (kind, key, label)
@@ -46,4 +46,21 @@ FROM sec_batch b CROSS JOIN LATERAL jsonb_to_recordset(b.payload->'auditors') AS
 JOIN sec.filing f USING (accession)
 JOIN sec.node company ON company.kind = 'company' AND company.cik = f.cik
 JOIN sec.node auditor ON auditor.kind = 'auditor' AND auditor.key = a.key
+ON CONFLICT DO NOTHING;
+
+INSERT INTO sec.node (kind, key, label)
+SELECT DISTINCT 'dimension', d.key, d.label
+FROM sec_batch b CROSS JOIN LATERAL jsonb_to_recordset(b.payload->'dimensions') AS d(key text, label text)
+ON CONFLICT (kind, key) DO NOTHING;
+
+INSERT INTO sec.triple (subject_id, predicate, object_number, dimension_id, taxonomy, concept, unit,
+                        period_start, period_end, filed_at, accession, source)
+SELECT company.id, d.predicate, d.value, dimension.id, d.taxonomy, d.concept, d.unit,
+       d.period_start, d.period_end, f.filed_at, f.accession, 'xbrl'
+FROM sec_batch b CROSS JOIN LATERAL jsonb_to_recordset(b.payload->'dimensions')
+    AS d(accession text, predicate text, key text, value numeric, taxonomy text, concept text,
+         unit text, period_start date, period_end date)
+JOIN sec.filing f USING (accession)
+JOIN sec.node company ON company.kind = 'company' AND company.cik = f.cik
+JOIN sec.node dimension ON dimension.kind = 'dimension' AND dimension.key = d.key
 ON CONFLICT DO NOTHING;

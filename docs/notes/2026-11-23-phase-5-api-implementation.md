@@ -13,7 +13,7 @@ Publish the typed HTTP contract and add specialist agents and durable conversati
 
 * [adk_runtime.py](../../python-brain/adk_runtime.py) adds a coordinator, SEC and market specialists, and a separate schema-constrained proposal agent. Sessions use ADK database storage and context compaction.
 * [api.py](../../python-brain/api.py) serves the six typed routes, bearer authentication, research JSON and SSE, a 15-second Alpaca cache, and explicit quote freshness.
-* [test_api.py](../../python-brain/test_api.py) covers OpenAPI, auth, sessions, SSE, proposal breaches, cached portfolio reads, and replay from server-owned files.
+* [test_api.py](../../python-brain/tests/test_api.py) covers OpenAPI, auth, sessions, SSE, proposal breaches, cached portfolio reads, and replay from server-owned files.
 * Updated the [setup guide](../LOCAL_SETUP.md#phase-5-http-api), requirements, and [ADR 0005](../decisions/0005-phase-5-api-and-agent-runtime.md).
 
 ## Key Decisions & Context

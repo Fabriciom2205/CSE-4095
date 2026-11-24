@@ -19,7 +19,7 @@ Give the research agent and MCP clients market data from Massive and Finnhub, fo
 * [python-brain/mcp_server.py](../../python-brain/mcp_server.py): Registered seven read-only `massive_*` and `finnhub_*` tools. Results are labeled as untrusted with their provider as the source. `untrusted_data` now accepts a source name that defaults to SEC EDGAR.
 * [python-brain/agent.py](../../python-brain/agent.py): Added the market data tools to the Gemini agent. Its instructions now cover missing keys, plan limits, and how to cite the provider and as-of date.
 * [python-brain/init.py](../../python-brain/init.py): Reports each market data key and runs one live call per provider when its key is set.
-* [python-brain/test_market_data.py](../../python-brain/test_market_data.py): Offline tests covering header-only keys, input validation, errors, normalization, untrusted labeling, and agent wiring. The tool lists in [test_research.py](../../python-brain/test_research.py) and [test_mcp_server.py](../../python-brain/test_mcp_server.py) now include the new tools.
+* [python-brain/test_market_data.py](../../python-brain/tests/test_market_data.py): Offline tests covering header-only keys, input validation, errors, normalization, untrusted labeling, and agent wiring. The tool lists in [test_research.py](../../python-brain/tests/test_research.py) and [test_mcp_server.py](../../python-brain/tests/live/mcp_smoke.py) now include the new tools.
 * Documented the optional keys in [.env.example](../../.env.example) and [LOCAL_SETUP.md](../LOCAL_SETUP.md), and updated the data sources in the [README](../../README.md) and [architecture](../ARCHITECTURE.md).
 
 ---
@@ -48,6 +48,6 @@ Give the research agent and MCP clients market data from Massive and Finnhub, fo
 ## Next Steps (Handoff Checklist)
 
 * [x] Add `MASSIVE_API_KEY` and `FINNHUB_API_KEY` to `.env`, run `python python-brain/init.py`, and call each tool once against live data.
-* [ ] Ask an end-to-end agent question that needs both filings and market data, and check the citations.
+* [x] Verify a live agent answer with SEC and Finnhub citations. [Verification](2026-11-24-backend-deliverables.md)
 * [ ] Confirm the endpoint scope and plan tiers with Jhoan.
 * [ ] Store both keys in Secret Manager alongside the database DSNs when the backend is deployed.

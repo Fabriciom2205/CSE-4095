@@ -10,7 +10,9 @@ The frontend prototype is gone. Phase 5 needs a typed contract for a future fron
 
 ## 2. Decision
 
-Use ADK behind FastAPI. Keep the HTTP models separate from the agent runtime and keep Gemini as the model provider. A coordinator delegates to narrow specialists and receives bounded evidence summaries. Start with SEC research and market data specialists. Proposal generation is a separate, private workflow using those specialists for evidence and the existing deterministic risk functions for checks. Public research specialists receive no portfolio or execution tools.
+Use ADK behind FastAPI. Keep the HTTP models separate from the agent runtime and keep Gemini as the model provider. A coordinator delegates to narrow specialists and receives bounded evidence summaries. Start with SEC research and market data specialists. Proposal generation is a separate, private workflow using shared source tools for evidence and the existing deterministic risk functions for checks. Public research specialists receive no portfolio or execution tools.
+
+The coordinator can call the shared evidence tools directly for single-company and single-filer lookups. Keep specialists for comparisons across companies or filers. The private proposal workflow gathers evidence with bounded parallel reads and fetches quotes after filing retrieval. Use one model-call budget per run across the coordinator, specialists, and compaction.
 
 Persist session history and accepted proposal context in PostgreSQL with ADK's database session service and a dedicated session database role. The application controls session IDs and ownership. Keep brokerage snapshots and exposure calculations outside the model session. Store bounded SEC and market evidence with the conversation and compact older context. Persisting a conversation or proposal does not persist execution authorization or make a historical quote current.
 
@@ -21,6 +23,7 @@ Keep JSON as the default response. Allow research to create or resume a conversa
 | GET /health | Minimal service readiness without a provider network call |
 | GET /filings | Use EFTS for keyword queries and submissions for a ticker timeline. Define combined filters and response limits explicitly. |
 | POST /research | Accept ticker, question, and an optional session ID. Return the session ID, answer, and typed citations checked against evidence. Document optional SSE delivery. |
+| POST /research/transcribe | Accept a bounded audio recording and return a transcript for review. The client submits the reviewed text to the research route. |
 | GET /portfolio | Return account, positions, exposures, and retrieval and freshness metadata. Use read-through Alpaca data with a short bounded cache. |
 | POST /proposals | Accept a ticker or universe, constraints, and an optional private session ID. Return schema-valid proposals with deterministic breach findings and freshness status. |
 | POST /backtest | Accept strategy and snapshot ID. Replay only a server-known snapshot. Return the snapshot hash and replay result. |

@@ -21,7 +21,7 @@ Eliminate the arbitrary 200-chunk filing cap by implementing targeted EDGAR sect
   * Switched default model to `gemini-embedding-2` with automatic fallback to secondary models on failure.
 * [`python-brain/agent.py`](../../python-brain/agent.py):
   * Updated `tool_query_filing_vector_database` to accept an optional `section` parameter (`'business'`, `'risk_factors'`, `'mda'`, `'financials'`, or `'key_sections'`).
-* [`python-brain/test_sec_tools.py`](../../python-brain/test_sec_tools.py):
+* [`python-brain/test_sec_tools.py`](../../python-brain/tests/live/sec_smoke.py):
   * Added unit test coverage for section extraction, verifying that legal disclosures and exhibit certifications are ignored while high-value sections are retained.
 
 ---

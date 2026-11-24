@@ -2,6 +2,7 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 import numpy as np
 from bs4 import BeautifulSoup
 from google import genai
@@ -24,6 +25,12 @@ log = logging.getLogger(__name__)
 
 # In-memory store: {filing_key: {"chunks": list[str], "embeddings": np.ndarray}}
 _filing_indices = {}
+_cache_lock = Lock()
+_build_locks = [Lock() for _ in range(32)]
+
+
+def _build_lock(key):
+    return _build_locks[hash(key) % len(_build_locks)]
 
 SECTION_RULES = {
     "business": (
@@ -175,15 +182,11 @@ def index_filing(
     if key in _filing_indices or not chunks:
         return
 
-    # FIFO cache eviction when exceeding maximum capacity
-    if len(_filing_indices) >= MAX_CACHED_FILINGS:
-        _filing_indices.pop(next(iter(_filing_indices)))
-
     embeddings = get_batch_embeddings(client, chunks, model=model, batch_size=100)
-    _filing_indices[key] = {
-        "chunks": chunks,
-        "embeddings": embeddings,
-    }
+    with _cache_lock:
+        if len(_filing_indices) >= MAX_CACHED_FILINGS:
+            _filing_indices.pop(next(iter(_filing_indices)))
+        _filing_indices[key] = {"chunks": chunks, "embeddings": embeddings}
 
 
 def query_filing_index(
@@ -194,10 +197,10 @@ def query_filing_index(
     model: str = DEFAULT_EMBEDDING_MODEL,
 ) -> list[dict]:
     """Runs cosine similarity search on the indexed filing matrix."""
-    if key not in _filing_indices:
+    index_data = _filing_indices.get(key)
+    if index_data is None:
         return []
 
-    index_data = _filing_indices[key]
     chunks = index_data["chunks"]
     matrix = index_data["embeddings"]
 
@@ -222,6 +225,46 @@ def _postgres_embeddings(client, texts, model):
     return embeddings
 
 
+def query_filing_history(ticker, question, client, section="key_sections", periods=4):
+    """Search persisted narrative excerpts from up to eight distinct SEC report periods."""
+    section = _validate_section(section)
+    if not question.strip() or len(question) > 2000:
+        raise ValueError("Question must contain 1 to 2000 characters")
+    if type(periods) is not int or not 2 <= periods <= 8:
+        raise ValueError("Periods must be between 2 and 8")
+    read_dsn = os.getenv("SEC_RAG_READ_DSN") or os.getenv("SEC_DB_READ_DSN")
+    if not read_dsn:
+        raise ValueError("Configure a PostgreSQL filing index reader for filing history")
+    ticker = ticker.strip().upper()
+    cik = sec_client.resolve_cik(ticker)
+    timeline = [
+        row for form in ("10-K", "10-Q")
+        for row in sec_client.filing_timeline(cik, form=form, limit=periods + 1)["filings"]
+        if row["report_date"] and row["filename"]
+    ]
+    by_period = {}
+    for row in sorted(timeline, key=lambda r: (r["report_date"], r["filing_date"], r["accession_number"]), reverse=True):
+        by_period.setdefault(row["report_date"], row)
+    filings = {r["accession_number"]: {**r, "indexed": False} for r in list(by_period.values())[:periods]}
+    excerpts = {}
+    if filings:
+        vector = _postgres_embeddings(client, [question], DEFAULT_EMBEDDING_MODEL)[0]
+        rows = filing_store.search_filing_series(
+            read_dsn, cik, [(a, row["filename"]) for a, row in filings.items()], section,
+            DEFAULT_EMBEDDING_MODEL, EMBEDDING_DIMENSIONS, CHUNK_VERSION, vector,
+        )
+        for accession, indexed, content, score in rows:
+            filings[accession]["indexed"] = indexed
+            if not content:
+                continue
+            key = " ".join(content.casefold().split())
+            excerpt = excerpts.setdefault(key, {"text": content[:2000], "matches": []})
+            if all(match["accession"] != accession for match in excerpt["matches"]):
+                excerpt["matches"].append({"accession": accession, "score": score})
+    return {"ticker": ticker, "section": section, "requested_periods": periods,
+            "filings": list(filings.values()), "excerpts": list(excerpts.values())}
+
+
 def _query_postgres(read_dsn, write_dsn, cik, accession, filename, section, question, client, top_k):
     model = DEFAULT_EMBEDDING_MODEL
     key = (cik, accession, filename, section, model, EMBEDDING_DIMENSIONS, CHUNK_VERSION)
@@ -229,16 +272,19 @@ def _query_postgres(read_dsn, write_dsn, cik, accession, filename, section, ques
     if index_id is None:
         if not write_dsn:
             return []
-        raw_html = sec_client.tool_fetch_filing_text(cik=cik, accession_number=accession, filename=filename)
-        chunks = clean_and_chunk_html(raw_html, section=section)
-        if not chunks:
-            return None
-        # shortcut: concurrent misses can repeat embedding work; coordinate builds if this becomes costly.
-        embeddings = _postgres_embeddings(client, chunks, model)
-        filing_store.publish_index(write_dsn, key, chunks, embeddings)
-        index_id = filing_store.find_index(read_dsn, key)
-        if index_id is None:
-            raise filing_store.FilingStoreError("Published filing index is unavailable through SEC_RAG_READ_DSN")
+        # shortcut: coalesce builds within one worker. Coordinate across workers if duplicate builds become costly.
+        with _build_lock((read_dsn, key)):
+            index_id = filing_store.find_index(read_dsn, key)
+            if index_id is None:
+                raw_html = sec_client.tool_fetch_filing_text(cik=cik, accession_number=accession, filename=filename)
+                chunks = clean_and_chunk_html(raw_html, section=section)
+                if not chunks:
+                    return None
+                embeddings = _postgres_embeddings(client, chunks, model)
+                filing_store.publish_index(write_dsn, key, chunks, embeddings)
+                index_id = filing_store.find_index(read_dsn, key)
+                if index_id is None:
+                    raise filing_store.FilingStoreError("Published filing index is unavailable through SEC_RAG_READ_DSN")
 
     embedding = _postgres_embeddings(client, [question], model)[0]
     return filing_store.search_index(read_dsn, index_id, embedding, top_k)
@@ -277,11 +323,13 @@ def query_filing_rag(
     if not results:
         cache_key = f"{cik}_{accession_number}_{filename}_{section}"
         if cache_key not in _filing_indices:
-            raw_html = sec_client.tool_fetch_filing_text(cik=cik, accession_number=accession_number, filename=filename)
-            chunks = clean_and_chunk_html(raw_html, section=section)
-            if not chunks:
-                return "No matching content found in target filing section."
-            index_filing(cache_key, chunks, client=client)
+            with _build_lock(cache_key):
+                if cache_key not in _filing_indices:
+                    raw_html = sec_client.tool_fetch_filing_text(cik=cik, accession_number=accession_number, filename=filename)
+                    chunks = clean_and_chunk_html(raw_html, section=section)
+                    if not chunks:
+                        return "No matching content found in target filing section."
+                    index_filing(cache_key, chunks, client=client)
         results = query_filing_index(cache_key, query=question, client=client, top_k=top_k)
     if not results:
         return "No matching sections found in filing."

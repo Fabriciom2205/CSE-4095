@@ -1,6 +1,6 @@
 """Durability and reconciliation against disposable PostgreSQL and a mocked broker."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal as D
 import os
 import unittest
@@ -10,7 +10,7 @@ from uuid import uuid4
 import alpaca_client as broker
 import portfolio_agent as runner
 import portfolio_store as store
-from test_portfolio_agent import mock_broker, proposal
+from tests.test_portfolio_agent import mock_broker, proposal
 
 
 @unittest.skipUnless(os.getenv("MONROE_PORTFOLIO_TEST_DSN"), "requires disposable PostgreSQL migration 004")
@@ -98,6 +98,28 @@ class DurableExecutionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "max_drawdown"):
             self.execute()
         self.assertEqual(self.model.call_args.kwargs["peak_equity"], D(1250))
+
+    def test_projected_sector_breach_blocks_paper_submission(self):
+        with store.connect() as ledger:
+            ledger.conn.execute("UPDATE portfolio.risk_limit SET max_sector_weight = .1 WHERE account_id = %s",
+                                (self.account_id,))
+        with patch("portfolio_sectors.classifications", return_value={"NVDA": "manufacturing"}):
+            with self.assertRaisesRegex(ValueError, "max_sector_weight"):
+                self.execute()
+        self.post.assert_not_called()
+
+    def test_read_only_peak_is_scoped_to_account_and_observation_time(self):
+        now = datetime.now(timezone.utc)
+        external_id = self.account.return_value["external_account_id"]
+        with store.connect() as ledger:
+            ledger.conn.execute(
+                "INSERT INTO portfolio.equity_snapshot VALUES (%s, %s, 2000)",
+                (self.account_id, now + timedelta(days=1)),
+            )
+        with patch.dict(os.environ, {"MONROE_PORTFOLIO_READ_DSN": os.environ["MONROE_PORTFOLIO_TEST_DSN"]}):
+            self.assertEqual(store.read_peak_equity("paper", external_id, now), D(1000))
+            with self.assertRaisesRegex(ValueError, "Seed trusted equity history"):
+                store.read_peak_equity("live", external_id, now)
         self.post.assert_not_called()
 
     def test_daily_order_cap_blocks_different_decision_after_first_fills(self):

@@ -64,15 +64,15 @@ Use this checklist for handoffs between agents. Keep it up to date.
 * [x] Implement Model Context Protocol (MCP) server for SEC EDGAR tools in [python-brain/mcp_server.py](python-brain/mcp_server.py)
 * [x] Complete codebase audit and refactoring (deduplicate RAG, fix search schema, connection pooling, bounded cache)
 * [x] Add python-brain environment & health check script in [python-brain/init.py](python-brain/init.py)
-* [x] Add end-to-end MCP server tests (tools, resource, prompt, stdio + streamable-http) in [python-brain/test_mcp_server.py](python-brain/test_mcp_server.py)
+* [x] Add end-to-end MCP server tests (tools, resource, prompt, stdio + streamable-http) in [python-brain/tests/live/mcp_smoke.py](python-brain/tests/live/mcp_smoke.py)
 * [x] Fix MCP error messages, date filtering, oversized filing output, and section extraction; add composite research tool (see [docs/notes/2026-11-13-sec-research-improvements.md](docs/notes/2026-11-13-sec-research-improvements.md))
-* [ ] Evaluate prompt-injection defenses with adversarial model tests; implement authentication and authorization before remote or multi-user MCP use (see [docs/notes/2026-11-17-agent-security.md](docs/notes/2026-11-17-agent-security.md))
-* [ ] Verify SEC MCP and composite research against live filings and transports (see [docs/notes/2026-11-13-sec-research-improvements.md](docs/notes/2026-11-13-sec-research-improvements.md))
+* [x] Run initial live adversarial research tests and verify SEC MCP transport and composite research (see [backlog follow-through](docs/notes/2026-11-24-backend-deliverables.md))
+* [x] Add bearer authentication and HTTPS origin controls for shared operator MCP (see [shared MCP access](docs/LOCAL_SETUP.md#shared-mcp-access))
+* [ ] Configure deployment ingress and per-user identity before multi-user MCP use
 * [x] Retry live agent research after the client lifetime fix (see [docs/notes/2026-11-13-agent-client-lifetime.md](docs/notes/2026-11-13-agent-client-lifetime.md))
 * [x] Retry live SEC research after filtering hidden XBRL and validating filing sections (see [docs/notes/2026-11-13-filing-retrieval-noise.md](docs/notes/2026-11-13-filing-retrieval-noise.md))
-* [ ] Verify filing section extraction across more real filings; assess indexing cost and persistent storage (see [docs/notes/2026-11-13-agent-retrieval-fix.md](docs/notes/2026-11-13-agent-retrieval-fix.md))
-* [ ] Re-run MCP transport tests with live SEC access after the deterministic error assertion fix (see [docs/notes/2026-11-13-mcp-transport-error-test.md](docs/notes/2026-11-13-mcp-transport-error-test.md))
-* [ ] Make `test_cache_eviction_bounded` and `test_archive_url_construction` call the real `filing_rag` / `sec_client` code
+* [x] Verify linked section extraction on Apple, Microsoft and NVIDIA and run cold/warm retrieval benchmarks
+* [x] Make `test_cache_eviction_bounded` and `test_archive_url_construction` call production code
 * [x] Remove the mock frontend to focus on completing the backend (see [handoff](docs/notes/2026-11-20-remove-mock-frontend.md))
 * [x] Verify live 1536-dimensional embeddings using a real SEC filing and pgvector (see [docs/notes/2026-11-17-postgresql-filing-retrieval.md](docs/notes/2026-11-17-postgresql-filing-retrieval.md))
 * [x] Add read-only Alpaca account, position, and order access and portfolio migration 003 (see [portfolio setup](docs/LOCAL_SETUP.md#portfolio-and-strategy-tools))
@@ -83,15 +83,23 @@ Use this checklist for handoffs between agents. Keep it up to date.
 * [x] Add separate proposal and explicitly enabled local paper execution modes (see [worklog](docs/notes/2026-11-23-paper-execution-mode.md))
 * [x] Add durable paper order intents, database peak and daily caps, and fill reconciliation (see [Phase 6 handoff](docs/notes/2026-11-23-paper-order-audit.md))
 * [ ] Provision the shared execution database and run the paper submission and duplicate-key smoke test during regular market hours
-* [ ] Add trusted equity history to HTTP proposal drawdown checks and source reliable sector classifications before enabling sector caps
+* [x] Add trusted equity history to HTTP proposal drawdown checks through a scoped reader role
+* [x] Define equity snapshot retention and enforce sector caps using EDGAR SIC classifications
+* [ ] Configure the intended proposal equity reader and schedule the snapshot retention operation
 * [x] Serve the Phase 5 FastAPI contract with ADK specialists and durable sessions (see [Phase 5 handoff](docs/notes/2026-11-23-phase-5-api-implementation.md))
+* [x] Add authenticated research audio transcription for the future frontend
+* [x] Add opt-in structured SEC statement tables and charts to research JSON and streaming responses (see [research visuals](docs/notes/2026-11-24-research-visuals.md))
+* [x] Reduce research model calls and parallelize proposal evidence reads (see [agent performance review](docs/notes/2026-11-23-agent-performance.md))
+* [x] Group backend tests and opt-in live checks under [python-brain/tests/](python-brain/tests/) (see [test layout handoff](docs/notes/2026-11-23-backend-test-layout.md))
+* [ ] Measure generation and embedding cost across representative research and proposal requests before changing the model or adding billing dashboards
 * [x] Verify local API startup, bearer auth, and SQLite session lookup with the project virtual environment
 * [ ] Configure the API token and dedicated session database for the intended deployment
 * [ ] Deferred: Initialize remaining workspace directories (rust-muscle, proto)
 * [ ] Deferred: Set up protobuf/gRPC definitions if a Rust daemon is needed
 * [ ] Deferred: Configure PyO3/maturin bindings if measured compute needs justify them
 * [x] Add PostgreSQL schema, SEC fact and latest auditor import, and Cloud SQL guide ([setup](docs/POSTGRESQL.md))
-* [ ] Verify the importer against live EDGAR and add dimensional XBRL and historical relationship loaders
+* [x] Verify the importer against live EDGAR and load historical auditors and standard explicit-dimensional facts
+* [ ] Extend dimensional and historical relationship coverage beyond the first loader
 * [x] Implement PostgreSQL-backed agent and MCP filing retrieval following [the retrieval plan](docs/notes/2026-11-17-postgresql-retrieval-plan.md)
 * [x] Add a single-command PostgreSQL filing retrieval check for the agent and its shared MCP tool (see [setup](docs/POSTGRESQL.md#enable-persistent-filing-retrieval))
 * [x] Apply migration 002 and scoped database grants to Cloud SQL (see [verification](docs/notes/2026-11-17-cloud-sql-filing-retrieval.md))
@@ -103,10 +111,13 @@ Use this checklist for handoffs between agents. Keep it up to date.
 * [x] Verify the Massive and Finnhub tools against live APIs (see [market data tools](docs/notes/2026-11-18-market-data-tools.md))
 * [ ] Deferred: Scope Alpaca market data or brokerage access if requested (see [Alpaca status](docs/notes/2026-11-20-alpaca-status.md))
 * [x] Verify Finnhub general news and NVDA company news against the live API (see [news verification](docs/notes/2026-11-22-finnhub-news-check.md))
-* [ ] Confirm market data endpoint scope and plan tiers with Jhoan; check an end-to-end agent answer that combines filings and market data (see [market data tools](docs/notes/2026-11-18-market-data-tools.md))
+* [x] Verify an end-to-end research answer with SEC and Finnhub citations
+* [ ] Confirm market data endpoint scope and plan tiers with Jhoan
 * [x] Add opt-in PostgreSQL reads for consolidated financial facts and statements, with automatic EDGAR fallback and typed relationship reads (see [research routing](docs/notes/2026-11-20-sec-research-routing.md))
 * [x] Add an all-forms SEC filing timeline, linked section navigation, and annual risk-factor text diff (see [filing navigation](docs/notes/2026-11-20-sec-filing-navigation.md))
-* [ ] Expand statement coverage validation and load dimensions and relationships before relying on broad SQL coverage (see [research routing](docs/notes/2026-11-20-sec-research-routing.md))
+* [x] Add SEC Figure Source research for Form 4 transactions and 13F holdings changes (see [handoff](docs/notes/2026-11-23-figure-sources.md))
+* [x] Add indexed cross-filing narrative retrieval with repeated-passage deduplication and explicit coverage gaps
+* [ ] Expand statement coverage and imported data across more issuers and filing periods before relying on broad SQL coverage
 * [ ] Set up Python service deployment and CI/CD when needed, applying Well-Architected guidance and documenting unmet controls
 
 ---
@@ -117,6 +128,12 @@ Keep a reverse-chronological list of session notes here. Whenever you create a n
 
 | Date | Topic / Session | Note Link | Contributors / Agent |
 | :--- | :--- | :--- | :--- |
+| 2026-11-24 | Voice research and portfolio and MCP controls | [docs/notes/2026-11-24-voice-and-portfolio-controls.md](docs/notes/2026-11-24-voice-and-portfolio-controls.md) | Codex |
+| 2026-11-24 | Opt-in SEC research visuals | [docs/notes/2026-11-24-research-visuals.md](docs/notes/2026-11-24-research-visuals.md) | Codex |
+| 2026-11-24 | Backend deliverables and live verification | [docs/notes/2026-11-24-backend-deliverables.md](docs/notes/2026-11-24-backend-deliverables.md) | Codex |
+| 2026-11-23 | Backend test layout | [docs/notes/2026-11-23-backend-test-layout.md](docs/notes/2026-11-23-backend-test-layout.md) | Codex |
+| 2026-11-23 | Agent latency and model usage review | [docs/notes/2026-11-23-agent-performance.md](docs/notes/2026-11-23-agent-performance.md) | Codex |
+| 2026-11-23 | SEC Figure Source research | [docs/notes/2026-11-23-figure-sources.md](docs/notes/2026-11-23-figure-sources.md) | Codex |
 | 2026-11-23 | Main backend release handoff | [docs/notes/2026-11-23-main-backend-handoff.md](docs/notes/2026-11-23-main-backend-handoff.md) | Codex |
 | 2026-11-23 | Phase 6 paper order audit and reconciliation | [docs/notes/2026-11-23-paper-order-audit.md](docs/notes/2026-11-23-paper-order-audit.md) | Codex |
 | 2026-11-23 | Local API startup and session storage | [docs/notes/2026-11-23-local-api-startup.md](docs/notes/2026-11-23-local-api-startup.md) | Codex |

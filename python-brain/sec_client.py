@@ -18,6 +18,7 @@ SEC_RATE_LIMIT_DELAY = 0.11  # At least 110ms between calls to enforce <= 10 req
 
 _last_request_time = 0.0
 _request_lock = Lock()
+_cik_cache_lock = Lock()
 _cik_cache = {}
 _ticker_cache = {}
 _session = requests.Session()
@@ -61,19 +62,25 @@ def _rate_limited_get(url: str, params: dict = None) -> requests.Response:
 
 def tool_cik_lookup(company_name_or_ticker: str) -> str:
     """Maps a company name or ticker to its 10-digit zero-padded CIK using SEC company_tickers.json."""
-    global _cik_cache
     target = company_name_or_ticker.strip().upper()
     if not target:
         return ""
 
     if not _cik_cache:
-        url = "https://www.sec.gov/files/company_tickers.json"
-        data = _rate_limited_get(url).json()
-        for item in data.values():
-            cik_padded = str(item["cik_str"]).zfill(10)
-            _ticker_cache[item["ticker"].upper()] = cik_padded
-            _cik_cache[item["ticker"].upper()] = cik_padded
-            _cik_cache[item["title"].upper()] = cik_padded
+        with _cik_cache_lock:
+            if not _cik_cache:
+                url = "https://www.sec.gov/files/company_tickers.json"
+                data = _rate_limited_get(url).json()
+                lookups = {}
+                tickers = {}
+                for item in data.values():
+                    cik = str(item["cik_str"]).zfill(10)
+                    ticker = item["ticker"].upper()
+                    tickers[ticker] = cik
+                    lookups[ticker] = cik
+                    lookups[item["title"].upper()] = cik
+                _ticker_cache.update(tickers)
+                _cik_cache.update(lookups)
 
     # Direct match by ticker or company name
     if target in _cik_cache:
@@ -155,8 +162,13 @@ def _validate_filename(filename: str) -> str:
     return filename
 
 
+def company_submissions(cik):
+    cik = _validate_cik(cik)
+    return _rate_limited_get(f"https://data.sec.gov/submissions/CIK{cik}.json").json()
+
+
 def _submission_batches(cik, since=""):
-    data = _rate_limited_get(f"https://data.sec.gov/submissions/CIK{cik}.json").json()["filings"]
+    data = company_submissions(cik)["filings"]
     yield data["recent"]
     for entry in sorted(data.get("files", []), key=lambda item: item.get("filingTo", ""), reverse=True):
         if entry.get("filingTo") and entry["filingTo"] < since:
@@ -212,7 +224,7 @@ def filing_timeline(cik: str, form: str = "", since: str = "", limit: int = 20) 
             filename = row["filename"]
             # SEC ownership forms can use a stylesheet directory for their primary XML.
             directory, sep, leaf = filename.rpartition("/")
-            valid_directory = not sep or bool(re.fullmatch(r"xsl[A-Za-z0-9]+", directory))
+            valid_directory = not sep or bool(re.fullmatch(r"xsl[A-Za-z0-9_]+", directory))
             try:
                 _validate_filename(leaf)
                 if not valid_directory:

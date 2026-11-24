@@ -18,4 +18,4 @@ The existing `test_mcp_error_includes_http_status` separately checks HTTP 404 fo
 The 10 offline research tests pass. Transport checks hung in this environment, including a check without a live SEC request; the full live suite was not verified.
 
 ## Next Steps (Handoff Checklist)
-* [ ] Run `python python-brain/test_mcp_server.py` in an environment with SEC and Google Cloud access.
+* [x] Verify the live MCP smoke checks with SEC and Google Cloud access. [Verification](2026-11-24-backend-deliverables.md)

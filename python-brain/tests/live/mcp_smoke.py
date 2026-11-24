@@ -5,7 +5,7 @@ to mcp_server.py as a real MCP client over stdio and streamable-http. Hits SEC E
 the RAG tool test also calls Gemini and is skipped without GOOGLE_CLOUD_PROJECT.
 
 Usage:
-    python test_mcp_server.py
+    python -m tests.live.mcp_smoke
 """
 
 import os
@@ -23,11 +23,12 @@ from mcp.client.streamable_http import streamable_http_client
 
 import mcp_server
 
-SERVER_PATH = Path(__file__).resolve().parent / "mcp_server.py"
+SERVER_PATH = Path(__file__).resolve().parents[2] / "mcp_server.py"
 EXPECTED_TOOLS = {
     "sec_cik_lookup",
     "sec_full_text_search",
     "sec_filings",
+    "sec_figure_disclosures",
     "sec_filing_section",
     "sec_risk_factor_diff",
     "sec_fetch_filing_text",
@@ -35,6 +36,7 @@ EXPECTED_TOOLS = {
     "sec_company_statement",
     "sec_relations",
     "sec_query_filing_rag",
+    "sec_query_filing_history",
     "sec_company_research",
     "massive_daily_bars",
     "massive_previous_close",

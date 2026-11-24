@@ -34,7 +34,7 @@
 * [`python-brain/mcp_server.py`](../../python-brain/mcp_server.py):
   * Configured `genai.Client(http_options={"api_version": "v1beta"})`.
   * Updated `sec_query_filing_rag` to call the shared `filing_rag.query_filing_rag`.
-* [`python-brain/test_sec_tools.py`](../../python-brain/test_sec_tools.py):
+* [`python-brain/test_sec_tools.py`](../../python-brain/tests/live/sec_smoke.py):
   * Added unit test for bounded FIFO cache eviction.
   * Verified all self-checks pass cleanly.
 * [`AGENTS.md`](../../AGENTS.md): Updated session history table and active backlog.

@@ -22,6 +22,12 @@ Validation can use deterministic sizing and risk functions internally to evaluat
 
 Phase 4 implementation is gated on verifying field mappings against a populated Alpaca paper account. Sector concentration is outside Phase 4 until portfolio symbols can be classified reliably. A configured sector cap must produce an explicit validation error while sector data is unavailable.
 
+### Sector classification and equity retention amendment
+
+Sector limits use the issuer's EDGAR SIC classification grouped by official industry division. Enforce the cap in deterministic proposal and paper execution checks. Block checks when a required position cannot be classified. The execution audit retains the classified projected positions.
+
+Keep detailed equity observations for 90 days and one older high-water mark per account. A separately authorized database maintainer may compact that history. The policy keeps the account peak available to current drawdown checks and leaves decision and fill history outside equity compaction.
+
 ### Paper execution amendment
 
 Proposal mode remains the default. In execution mode a trusted local caller can authorize one paper order for a selected symbol by opting in outside the conversation. The agent produces the same target-weight proposal in either mode. It has no tool for submitting an order or changing its authorization, symbol, or risk limits. In the opted-in run, the deterministic backend may turn the target into a buy or sell and submit a paper limit order after fresh account, holdings, quote, and risk checks.

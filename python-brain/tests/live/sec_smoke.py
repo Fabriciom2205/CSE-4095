@@ -90,15 +90,16 @@ def test_archive_url_construction():
     cik = "0000320193"
     adsh = "0000320193-23-000106"
     filename = "aapl-20230930.htm"
-    clean_cik = cik.lstrip("0")
-    clean_adsh = adsh.replace("-", "")
     expected = "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/aapl-20230930.htm"
-    actual = f"https://www.sec.gov/Archives/edgar/data/{clean_cik}/{clean_adsh}/{filename}"
-    assert actual == expected
+    with patch.object(sec_client, "_rate_limited_get") as get:
+        get.return_value.text = "filing"
+        assert sec_client.tool_fetch_filing_text(cik, adsh, filename) == "filing"
+        get.assert_called_once_with(expected)
 
 
-def test_env_and_branding():
-    assert "TheMonroeFund" in sec_client.DEFAULT_USER_AGENT
+def test_sec_user_agent():
+    contact = sec_client.DEFAULT_USER_AGENT.split()[-1]
+    assert "@" in contact, "SEC_USER_AGENT must include a contact email"
 
 
 def test_agent_cloud_client():
@@ -152,22 +153,14 @@ async def test_mcp_server():
 
 
 def test_cache_eviction_bounded():
-    filing_rag._filing_indices.clear()
-    # Populate cache up to limit
-    for i in range(filing_rag.MAX_CACHED_FILINGS):
-        filing_rag._filing_indices[f"key_{i}"] = {"chunks": [], "embeddings": np.array([])}
-
-    assert len(filing_rag._filing_indices) == filing_rag.MAX_CACHED_FILINGS
-
-    # Indexing one more filing should evict the oldest entry (key_0)
-    filing_rag._filing_indices["key_overflow"] = {"chunks": [], "embeddings": np.array([])}
-    if len(filing_rag._filing_indices) > filing_rag.MAX_CACHED_FILINGS:
-        filing_rag._filing_indices.pop(next(iter(filing_rag._filing_indices)))
-
-    assert len(filing_rag._filing_indices) == filing_rag.MAX_CACHED_FILINGS
-    assert "key_0" not in filing_rag._filing_indices
-    assert "key_overflow" in filing_rag._filing_indices
-    filing_rag._filing_indices.clear()
+    with (patch.dict(filing_rag._filing_indices, clear=True),
+          patch.object(filing_rag, "get_batch_embeddings", return_value=np.ones((1, 1)))):
+        limit = filing_rag.MAX_CACHED_FILINGS
+        for i in range(limit + 1):
+            filing_rag.index_filing(f"key_{i}", ["excerpt"], client=None)
+        assert len(filing_rag._filing_indices) == limit
+        assert "key_0" not in filing_rag._filing_indices
+        assert f"key_{limit}" in filing_rag._filing_indices
 
 
 if __name__ == "__main__":
@@ -175,7 +168,7 @@ if __name__ == "__main__":
     test_section_filtering()
     test_cosine_similarity()
     test_archive_url_construction()
-    test_env_and_branding()
+    test_sec_user_agent()
     test_agent_cloud_client()
     test_cache_eviction_bounded()
     asyncio.run(test_mcp_server())

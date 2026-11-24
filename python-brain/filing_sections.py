@@ -40,7 +40,9 @@ def _section_blocks(html, selector):
         if not href.startswith("#"):
             continue
         label = " ".join(node.stripped_strings)
-        match = _HEADING.match(label)
+        # Some linked contents omit the item or part number from the visible label.
+        fragment = re.sub(r"^item(?=\d)", "item ", href[1:].replace("_", " "), flags=re.I)
+        match = _HEADING.match(label) or _HEADING.match(fragment)
         if match:
             target = anchors.get(href[1:])
             if target is not None and i < target:

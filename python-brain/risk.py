@@ -89,6 +89,17 @@ class Position:
     market_value: Decimal
 
 
+def classified_positions(positions, sectors):
+    """Require a trusted classification for each nonzero exposure."""
+    result = []
+    for position in positions:
+        sector = sectors.get(position.symbol) or position.sector
+        if position.market_value and not sector:
+            raise ValueError(f"Sector cap requires a classification for {position.symbol}")
+        result.append(Position(position.symbol, sector, position.market_value))
+    return tuple(result)
+
+
 @dataclass(frozen=True)
 class RiskLimits:
     max_name_weight: Decimal | None = None

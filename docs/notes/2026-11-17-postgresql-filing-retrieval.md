@@ -15,7 +15,7 @@ Implement the [retrieval plan](2026-11-17-postgresql-retrieval-plan.md) so agent
 * [Filing store](../../python-brain/filing_store.py) publishes an entire index in one transaction and searches it with exact cosine similarity.
 * [Filing RAG](../../python-brain/filing_rag.py) uses the database when configured. It checks the stored index before downloading a filing and validates all 1,536-dimensional vectors before use.
 * [MCP tools](../../python-brain/mcp_server.py) describe conditional index writes and retain the explicit untrusted-data envelope. [Setup](../POSTGRESQL.md#enable-persistent-filing-retrieval) documents the reader and index writer grants.
-* [Integration tests](../../python-brain/test_filing_store.py) verify reuse, citations, section isolation, concurrency, partial-write rollback, and embedding failure.
+* [Integration tests](../../python-brain/tests/test_filing_store.py) verify reuse, citations, section isolation, concurrency, partial-write rollback, and embedding failure.
 
 ## Key Decisions & Context
 

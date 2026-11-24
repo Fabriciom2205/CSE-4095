@@ -22,7 +22,7 @@
   * Added dynamic URI resource template: `sec://filings/{cik}/{accession_number}/{filename}` for direct document reading.
   * Added standardized prompt template: `analyze_sec_filing` guiding LLMs through structured 10-K/10-Q evaluations.
   * Implemented CLI runner supporting both `stdio` transport (standard for local agents/IDEs) and `sse` / `streamable-http` transport (for cloud microservices).
-* [`python-brain/test_sec_tools.py`](../../python-brain/test_sec_tools.py): Added `test_mcp_server()` validating tool discovery, prompt registration, and live asynchronous tool execution.
+* [`python-brain/test_sec_tools.py`](../../python-brain/tests/live/sec_smoke.py): Added `test_mcp_server()` validating tool discovery, prompt registration, and live asynchronous tool execution.
 * [`.env`](../../.env): Fixed double-quote formatting on `GEMINI_API_KEY`.
 * [`AGENTS.md`](../../AGENTS.md): Updated active task checklist and session history table.
 

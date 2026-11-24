@@ -13,7 +13,7 @@
 ---
 
 ## Changes Implemented
-* [`python-brain/test_mcp_server.py`](../../python-brain/test_mcp_server.py): New test suite. Run with `python test_mcp_server.py` (about 10 s; hits SEC EDGAR live).
+* [MCP smoke test](../../python-brain/tests/live/mcp_smoke.py) exercises SEC EDGAR and both MCP transports. Run `python -m tests.live.mcp_smoke` from `python-brain/`.
   * In-process: exact tool / prompt / resource-template registration, all four SEC tools via `call_tool`, missing-argument validation, `sec://filings/...` resource read, `analyze_sec_filing` prompt rendering (and that every tool it names exists).
   * `sec_query_filing_rag` via MCP (2 Gemini embedding requests; skipped without `GEMINI_API_KEY`).
   * Real clients: spawns `mcp_server.py` over **stdio** and over **streamable-http** on a free local port, then runs the handshake, `list_tools`, a live tool call and a failing tool call.

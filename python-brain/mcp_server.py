@@ -34,6 +34,7 @@ from mcp.types import ToolAnnotations
 import sec_client
 import sec_statements
 import filing_rag
+import figure_sources
 import filing_sections
 import filing_store
 from filing_store import FilingStoreError
@@ -121,6 +122,15 @@ def sec_filings(cik: str, form: str = "", since: str = "", limit: int = 20) -> U
     Optionally filter by an exact form (such as 8-K, DEF 14A, or 4) and an inclusive filing date.
     """
     return untrusted_data(sec_client.filing_timeline(cik, form, since, limit))
+
+
+@mcp.tool(annotations=READ_ONLY, structured_output=True)
+@tool_errors
+def sec_figure_disclosures(figure: str, kind: str, limit: int = 10) -> UntrustedResult:
+    """Look up Form 4 reported transactions or 13F quarter-end holdings changes by name or CIK.
+    Use kind form4 for individuals such as Jeff Bezos and 13f for managers such as Berkshire Hathaway.
+    """
+    return untrusted_data(figure_sources.lookup(figure, kind, limit))
 
 
 @mcp.tool(annotations=READ_ONLY, structured_output=True)
@@ -272,6 +282,15 @@ def sec_company_research(ticker: str, question: str) -> UntrustedResult:
     })
 
 
+@mcp.tool(annotations=READ_ONLY, structured_output=True)
+@tool_errors
+def sec_query_filing_history(ticker: str, question: str, section: str = "key_sections",
+                             periods: int = 4) -> UntrustedResult:
+    """Search indexed 10-K and 10-Q narrative across 2–8 report periods. Includes index gaps and repeated passages."""
+    with google_client.create_client() as client:
+        return untrusted_data(filing_rag.query_filing_history(ticker, question, client, section, periods))
+
+
 @mcp.tool(
     annotations=READ_ONLY,
     name="massive_daily_bars",
@@ -409,14 +428,25 @@ def prompt_analyze_filing(ticker: str, form_type: str = "10-K") -> list[dict]:
 
 if __name__ == "__main__":
     import argparse
+    import uvicorn
+    from mcp_access import protected_mcp_app
     parser = argparse.ArgumentParser(description="The Monroe Fund - SEC EDGAR and market data MCP Server")
     parser.add_argument("--transport", default="stdio", choices=["stdio", "sse", "streamable-http"], help="MCP transport protocol (default: stdio)")
     parser.add_argument("--host", default="127.0.0.1", help="Host address for HTTP/SSE transport (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="Port for HTTP/SSE transport (default: 8000)")
+    parser.add_argument("--tls-cert", help="PEM certificate for direct HTTPS")
+    parser.add_argument("--tls-key", help="PEM private key for direct HTTPS")
     args = parser.parse_args()
 
     print(f"Starting The Monroe Fund SEC MCP Server on {args.transport} transport...", file=sys.stderr)
     if args.transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        mcp.run(transport=args.transport, host=args.host, port=args.port)
+        if bool(args.tls_cert) != bool(args.tls_key):
+            parser.error("Provide both --tls-cert and --tls-key for HTTPS")
+        try:
+            app = protected_mcp_app(mcp, args.transport, args.host, os.getenv("MONROE_MCP_TOKEN", ""),
+                                    os.getenv("MONROE_MCP_PUBLIC_URL", ""), tls=bool(args.tls_cert))
+        except ValueError as error:
+            parser.error(str(error))
+        uvicorn.run(app, host=args.host, port=args.port, ssl_certfile=args.tls_cert, ssl_keyfile=args.tls_key)
