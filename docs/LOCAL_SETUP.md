@@ -34,6 +34,16 @@ The proxy authenticates to Google Cloud. PostgreSQL authenticates the database l
 
 ## 3. Configure local database credentials
 
+For a single local `.env`, you can include each PostgreSQL password directly in its connection URL instead of using `.pgpass`. Use the right password for each database role and percent encode reserved characters in the password (for example, `@` becomes `%40`). The Cloud SQL Auth Proxy still needs its own Google sign-in.
+
+```dotenv
+SEC_RAG_READ_DSN=postgresql://sec_reader:ENCODED_PASSWORD@127.0.0.1:5433/monroe_fund
+SEC_RAG_WRITE_DSN=postgresql://sec_index_writer:ENCODED_PASSWORD@127.0.0.1:5433/monroe_fund
+MONROE_SESSION_DSN=postgresql+asyncpg://monroe_sessions:ENCODED_PASSWORD@127.0.0.1:5433/monroe_sessions
+```
+
+Set permissions on the copied `.env` so only your user can read it. For separate storage of database passwords, use the password file setup below.
+
 In a second terminal, create or open `~/.pgpass` and restrict its permissions.
 
 ```bash

@@ -131,8 +131,8 @@ Use this checklist for handoffs between agents. Keep it up to date.
 * [x] Add authenticated portfolio history, order history, direct paper-order, and explicitly confirmed agent paper-run API routes
 * [x] Surface proposals, strategy tuning and browser drafts, saved replay, streaming Phil markdown, SEC statement tables and charts, and read-only broker orders
 * [x] Verify the new local market quote and price history routes through the Vite proxy
-* [ ] Configure a secure browser access path before connecting the frontend directly to the private Cloud Run API
-* [ ] If the presentation needs individual access, update the private Cloud Run API and verify local frontend access with a teammate (see [demo handoff](docs/notes/2026-11-25-frontend-release-handoff.md))
+* [x] Return to local setup for the class demo and remove the IAP-only implementation from the workspace (see [laptop handoff](docs/notes/2026-11-25-local-demo-setup.md))
+* [x] Document password-bearing database URLs and support token-free local frontend startup through the Vite proxy (see [credential handoff](docs/notes/2026-11-25-local-credential-shortcuts.md))
 * [ ] Automate test-gated image publication and Cloud Run revisions when CI/CD is needed
 
 ---
@@ -143,6 +143,10 @@ Keep a reverse-chronological list of session notes here. Whenever you create a n
 
 | Date | Topic / Session | Note Link | Contributors / Agent |
 | :--- | :--- | :--- | :--- |
+| 2026-11-25 | Single-file local credentials | [docs/notes/2026-11-25-local-credential-shortcuts.md](docs/notes/2026-11-25-local-credential-shortcuts.md) | Codex |
+| 2026-11-25 | Local demo setup and IAP cleanup | [docs/notes/2026-11-25-local-demo-setup.md](docs/notes/2026-11-25-local-demo-setup.md) | Codex |
+| 2026-11-25 | Cloud Run IAP demo revision deployed | [docs/notes/2026-11-25-cloud-run-iap-deploy.md](docs/notes/2026-11-25-cloud-run-iap-deploy.md) | Codex |
+| 2026-11-25 | Cloud Run frontend and IAP authentication | [docs/notes/2026-11-25-cloud-run-iap-ui.md](docs/notes/2026-11-25-cloud-run-iap-ui.md) | Codex |
 | 2026-11-25 | Frontend release and class demo handoff | [docs/notes/2026-11-25-frontend-release-handoff.md](docs/notes/2026-11-25-frontend-release-handoff.md) | Codex |
 | 2026-11-25 | Ranked strategy replays and asset period returns | [docs/notes/2026-11-25-ranked-strategy-replays.md](docs/notes/2026-11-25-ranked-strategy-replays.md) | Codex |
 | 2026-11-25 | Direct filing fallback for proposals | [docs/notes/2026-11-25-proposal-filing-fallback.md](docs/notes/2026-11-25-proposal-filing-fallback.md) | Codex |

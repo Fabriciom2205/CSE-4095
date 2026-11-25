@@ -75,11 +75,12 @@ function ResearchVisualCard({visual}: {visual: ResearchVisual}) {
 const periods = ['1D', '1W', '1M', '3M', 'YTD', '1Y', 'ALL'];
 const watchlist = ['NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'SPY', 'VOO', 'QQQ'];
 const apiBase = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '');
+const localConnect = __MONROE_LOCAL_CONNECT__ && apiBase === '/api';
 const money = (value?: string | number, currency = 'USD') => value == null || !Number.isFinite(Number(value)) ? '—' : new Intl.NumberFormat('en-US', {style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2}).format(Number(value));
 const pct = (value?: number | string) => value == null || !Number.isFinite(Number(value)) ? '—' : `${Number(value) >= 0 ? '+' : ''}${(Number(value) * 100).toFixed(2)}%`;
 
 async function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`, {...init, headers: {Authorization: `Bearer ${token}`, ...(init?.body ? {'Content-Type': 'application/json'} : {}), ...init?.headers}});
+  const response = await fetch(`${apiBase}${path}`, {...init, headers: {...(token ? {Authorization: `Bearer ${token}`} : {}), ...(init?.body ? {'Content-Type': 'application/json'} : {}), ...init?.headers}});
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(body?.detail ?? `Request failed (${response.status})`);
@@ -191,15 +192,23 @@ export default function App() {
     }));
   }
 
-  async function connect(event: FormEvent) {
-    event.preventDefault();
-    if (!token.trim()) return;
+  async function connect(event?: FormEvent) {
+    event?.preventDefault();
+    if (!localConnect && !token.trim()) return;
     setBusy(true); setError('');
     void fetch(`${apiBase}/health`).then(response => response.json()).then(result => setApiHealth(result.status ?? 'unknown')).catch(() => setApiHealth('unavailable'));
     try { await loadAccount(token.trim()); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to connect'); setConnected(false); }
     finally { setBusy(false); }
   }
+
+  const autoConnectStarted = useRef(false);
+  useEffect(() => {
+    if (localConnect && !autoConnectStarted.current) {
+      autoConnectStarted.current = true;
+      void connect();
+    }
+  }, []);
 
   async function loadPeriod(value: string) {
     setPeriod(value);
@@ -349,7 +358,7 @@ export default function App() {
     setQuestion(''); setBusy(true); setChatError(''); setMessages(previous => [...previous, {role: 'user', text: prompt}, {id: responseId, role: 'phil', text: ''}]);
     const updateResponse = (update: Partial<ChatMessage>) => setMessages(previous => previous.map(message => message.id === responseId ? {...message, ...update} : message));
     try {
-      const response = await fetch(`${apiBase}/research`, {method: 'POST', headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'text/event-stream'}, body: JSON.stringify({ticker, question: prompt, session_id: sessionId, ...(visual ? {visual} : {})})});
+      const response = await fetch(`${apiBase}/research`, {method: 'POST', headers: {...(token ? {Authorization: `Bearer ${token}`} : {}), 'Content-Type': 'application/json', Accept: 'text/event-stream'}, body: JSON.stringify({ticker, question: prompt, session_id: sessionId, ...(visual ? {visual} : {})})});
       if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(body?.detail ?? `Request failed (${response.status})`); }
       if (!response.body) throw new Error('Phil stream is unavailable in this browser');
       const reader = response.body.getReader(), decoder = new TextDecoder();
@@ -426,13 +435,13 @@ export default function App() {
     <header className="topbar">
       <a className="brand" href="#investing" onClick={() => {setTab('investing'); setDetail(false);}} aria-label="The Monroe Fund home"><img className="brand-logo" src="/monroe-fund-logo.png" alt=""/><p><strong>MONROE</strong><small>INVESTMENT RESEARCH</small></p></a>
       <nav aria-label="Main navigation"><TabList value={tab} onChange={value => {setTab(value); setDetail(false);}}><Tab value="investing" label="Investing"/><Tab value="search" label="Search"/><Tab value="filings" label="SEC filings"/><Tab value="strategies" label="Strategies"/></TabList></nav>
-      <form className="access-form" onSubmit={connect}><TextInput label="API bearer token" isLabelHidden type="password" value={token} onChange={setToken} placeholder="Operator API token" autoComplete="off"/><Button label={connected ? 'Refresh' : 'Connect'} type="submit" variant="primary" isLoading={busy}/></form>
+      <form className="access-form" onSubmit={connect}>{!localConnect && <TextInput label="API bearer token" isLabelHidden type="password" value={token} onChange={setToken} placeholder="Operator API token" autoComplete="off"/>}<Button label={connected ? 'Refresh' : 'Connect'} type="submit" variant="primary" isLoading={busy}/></form>
     </header>
 
     <VStack as="section" gap={4} className="page-content">
       <header className="page-heading"><VStack gap={1}><Text type="label" color="secondary">THE MONROE FUND / {tab.toUpperCase()}</Text><Heading level={1}>{detail ? ticker : tab === 'investing' ? 'Investing' : tab === 'search' ? 'Search stocks & ETFs' : tab === 'filings' ? 'SEC filings' : 'Strategies'}</Heading></VStack><Text type="supporting" color="secondary">{connected ? `Connected · ${portfolio?.account.environment ?? 'API'}${apiHealth ? ` · service ${apiHealth}` : ''}` : 'Connect to view current data'}</Text></header>
       {error && <p role="alert" className="error-message">{error}</p>}
-      {!connected && <Card variant="muted" padding={3}><Text>Enter your API token to load your account, current market data, filings, and research tools. The token stays in this browser tab.</Text></Card>}
+      {!connected && !localConnect && <Card variant="muted" padding={3}><Text>Enter your API token to load your account, current market data, filings, and research tools. The token stays in this browser tab.</Text></Card>}
 
       {tab === 'investing' && !detail && <VStack gap={4}>
         {portfolio && <>
