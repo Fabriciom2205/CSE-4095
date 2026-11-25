@@ -8,9 +8,9 @@ This repository is shared across multiple contributors and agentic workflows. To
 
 ## Project Overview
 
-**The Monroe Fund** is a Python-first AI-assisted financial research project. Near-term work focuses on agentic search, MCP tools, SEC filings, and aggregation of financial data. The current focus is finalizing the backend before building the final frontend. Persistent storage and Google Cloud infrastructure are planned as needed. The backend includes deterministic risk and a daily-bar backtest. Rust compute and live execution remain deferred.
+**The Monroe Fund** is a Python-first AI-assisted financial research project. Near-term work focuses on agentic search, MCP tools, SEC filings, and aggregation of financial data. The backend includes deterministic risk and a daily-bar backtest; a React 19 + Astryx frontend supports investing, paper-only order submission, SEC filings, strategy replay, and research chat. Persistent storage and Google Cloud infrastructure are in use. Rust compute and live execution remain deferred.
 * **Architecture Reference:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-* **Architectural Decisions:** [ADR 0001](docs/decisions/0001-polyglot-trading-platform-architecture.md), revised by [ADR 0002](docs/decisions/0002-python-first-research-scope.md). [ADR 0003](docs/decisions/0003-postgresql-sec-research.md) records the SEC PostgreSQL design. [ADR 0004](docs/decisions/0004-portfolio-and-deterministic-strategy.md) records the portfolio and strategy boundaries. [ADR 0005](docs/decisions/0005-phase-5-api-and-agent-runtime.md) covers the API and agent runtime.
+* **Architectural Decisions:** [ADR 0001](docs/decisions/0001-polyglot-trading-platform-architecture.md), revised by [ADR 0002](docs/decisions/0002-python-first-research-scope.md). [ADR 0003](docs/decisions/0003-postgresql-sec-research.md) records the SEC PostgreSQL design. [ADR 0004](docs/decisions/0004-portfolio-and-deterministic-strategy.md) records the portfolio and strategy boundaries. [ADR 0005](docs/decisions/0005-phase-5-api-and-agent-runtime.md) covers the API and agent runtime; [ADR 0004](docs/decisions/0004-portfolio-and-deterministic-strategy.md) also records the authenticated paper-order boundary.
 ---
 
 ## Agent Workflow & Handoff Protocol
@@ -121,6 +121,18 @@ Use this checklist for handoffs between agents. Keep it up to date.
 * [x] Add indexed cross-filing narrative retrieval with repeated-passage deduplication and explicit coverage gaps
 * [ ] Expand statement coverage and imported data across more issuers and filing periods before relying on broad SQL coverage
 * [x] Deploy the Python API privately on Cloud Run with a scoped service account and pinned secret references
+* [x] Create the React 19 + Astryx frontend with investing, proposal and paper-order modes, broker orders, SEC filings, configurable strategy replays, and streaming Phil research visuals (see [frontend setup](frontend/README.md))
+* [x] Build the React 19 investing dashboard, asset detail and paper-order screens, SEC filings, strategy replay, and floating Phil voice chat
+* [x] Add Monroe logo, searchable stocks/ETFs, and selectable hoverable asset price charts (see [handoff](docs/notes/2026-11-24-asset-search-chart.md))
+* [x] Fix Phil message contrast and reserve model calls for research replies, and split the frontend JavaScript bundle (see [handoff](docs/notes/2026-11-24-phil-research-and-bundle.md))
+* [x] Distinguish proposal evidence retrieval failures from model and validation failures (see [handoff](docs/notes/2026-11-25-proposal-error-diagnostics.md))
+* [x] Fall back to direct SEC annual filing excerpts when proposal filing search fails (see [handoff](docs/notes/2026-11-25-proposal-filing-fallback.md))
+* [x] Add momentum, quality/value, and news sentiment research replays with a benchmark and period-specific asset returns (see [handoff](docs/notes/2026-11-25-ranked-strategy-replays.md))
+* [x] Add authenticated portfolio history, order history, direct paper-order, and explicitly confirmed agent paper-run API routes
+* [x] Surface proposals, strategy tuning and browser drafts, saved replay, streaming Phil markdown, SEC statement tables and charts, and read-only broker orders
+* [x] Verify the new local market quote and price history routes through the Vite proxy
+* [ ] Configure a secure browser access path before connecting the frontend directly to the private Cloud Run API
+* [ ] If the presentation needs individual access, update the private Cloud Run API and verify local frontend access with a teammate (see [demo handoff](docs/notes/2026-11-25-frontend-release-handoff.md))
 * [ ] Automate test-gated image publication and Cloud Run revisions when CI/CD is needed
 
 ---
@@ -131,6 +143,17 @@ Keep a reverse-chronological list of session notes here. Whenever you create a n
 
 | Date | Topic / Session | Note Link | Contributors / Agent |
 | :--- | :--- | :--- | :--- |
+| 2026-11-25 | Frontend release and class demo handoff | [docs/notes/2026-11-25-frontend-release-handoff.md](docs/notes/2026-11-25-frontend-release-handoff.md) | Codex |
+| 2026-11-25 | Ranked strategy replays and asset period returns | [docs/notes/2026-11-25-ranked-strategy-replays.md](docs/notes/2026-11-25-ranked-strategy-replays.md) | Codex |
+| 2026-11-25 | Direct filing fallback for proposals | [docs/notes/2026-11-25-proposal-filing-fallback.md](docs/notes/2026-11-25-proposal-filing-fallback.md) | Codex |
+| 2026-11-25 | Proposal error diagnostics | [docs/notes/2026-11-25-proposal-error-diagnostics.md](docs/notes/2026-11-25-proposal-error-diagnostics.md) | Codex |
+| 2026-11-24 | Phil chat contrast, research budget, and JavaScript bundles | [docs/notes/2026-11-24-phil-research-and-bundle.md](docs/notes/2026-11-24-phil-research-and-bundle.md) | Codex |
+| 2026-11-24 | Monroe logo, ticker search, and hoverable asset charts | [docs/notes/2026-11-24-asset-search-chart.md](docs/notes/2026-11-24-asset-search-chart.md) | Codex |
+| 2026-11-24 | Full backend feature UI and formatted Phil | [docs/notes/2026-11-24-backend-feature-frontend.md](docs/notes/2026-11-24-backend-feature-frontend.md) | Codex |
+| 2026-11-24 | Investing dashboard and paper orders | [docs/notes/2026-11-24-investing-dashboard.md](docs/notes/2026-11-24-investing-dashboard.md) | Codex |
+| 2026-11-24 | Local market data service restart | [docs/notes/2026-11-24-local-market-data-smoke.md](docs/notes/2026-11-24-local-market-data-smoke.md) | Codex |
+| 2026-11-24 | Trading desk, Phil chat, and voice input | [docs/notes/2026-11-24-trading-desk-phil.md](docs/notes/2026-11-24-trading-desk-phil.md) | Codex |
+| 2026-11-24 | React 19 + Astryx frontend | [docs/notes/2026-11-24-astryx-frontend.md](docs/notes/2026-11-24-astryx-frontend.md) | Codex |
 | 2026-11-24 | Local startup and private Cloud Run deployment | [docs/notes/2026-11-24-local-and-cloud-operations.md](docs/notes/2026-11-24-local-and-cloud-operations.md) | Codex |
 | 2026-11-24 | Cloud SQL conversation persistence | [docs/notes/2026-11-24-cloud-sql-conversations.md](docs/notes/2026-11-24-cloud-sql-conversations.md) | Codex |
 | 2026-11-24 | Voice research and portfolio and MCP controls | [docs/notes/2026-11-24-voice-and-portfolio-controls.md](docs/notes/2026-11-24-voice-and-portfolio-controls.md) | Codex |

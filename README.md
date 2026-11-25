@@ -30,7 +30,7 @@ flowchart TD
 
 The portfolio backend can read Alpaca positions, evaluate deterministic risk limits, and replay a strategy over Massive daily bars. [Portfolio and replay setup](docs/LOCAL_SETUP.md#portfolio-and-strategy-tools)
 
-The final frontend will follow the backend. Rust compute and live execution are deferred. [Python-first scope decision](docs/decisions/0002-python-first-research-scope.md)
+The React 19 + Astryx frontend provides an investing dashboard with account performance, holdings, stock and ETF detail screens, and paper-only order submission. SEC filings, proposal-only portfolio analysis, agent paper execution, configurable strategy drafts, live-data and saved-snapshot replays have dedicated workflows. Phil is a floating streaming research chat with citations, structured SEC tables and charts, and voice transcription. Local use connects through a Vite proxy; browser access to the private hosted API still needs an authenticated access path. [Frontend setup](frontend/README.md). Rust compute and live execution are deferred. [Python-first scope decision](docs/decisions/0002-python-first-research-scope.md)
 
 ---
 

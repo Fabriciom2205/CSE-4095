@@ -9,8 +9,9 @@ never in URLs, so they stay out of logs and error messages.
 import os
 import re
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time as day_time, timedelta, timezone
 from urllib.parse import quote, urlparse
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -135,6 +136,89 @@ def massive_daily_bars(ticker: str, start_date: str = "", end_date: str = "", *,
         raise ValueError(f"Massive returned an incomplete bar window for {symbol}")
     bars = [_bar(bar) for bar in data.get("results") or []]
     return {"ticker": symbol, "start_date": start, "end_date": end, "adjusted": adjusted, "bars": bars}
+
+
+def massive_price_history(ticker: str, period: str) -> dict:
+    """Return one bounded price window; 1D uses the latest regular session's 5-minute bars."""
+    symbol = _symbol(ticker)
+    today = date.today()
+    if period == "1D":
+        start, end = (today - timedelta(days=7)).isoformat(), today.isoformat()
+        multiplier, timespan = 5, "minute"
+    elif period == "ALL":
+        start, end, multiplier, timespan = "1970-01-01", today.isoformat(), 1, "week"
+    else:
+        days = {"1W": 7, "1M": 30, "3M": 90, "1Y": 365}
+        if period == "YTD":
+            start = date(today.year, 1, 1).isoformat()
+        elif period in days:
+            start = (today - timedelta(days=days[period])).isoformat()
+        else:
+            raise ValueError("Unsupported price-history period")
+        start, end = _date_range(start, today.isoformat(), today - timedelta(days=30), today, MAX_RANGE_DAYS)
+        multiplier, timespan = 1, "day"
+
+    data = _get("massive", f"{MASSIVE_URL}/v2/aggs/ticker/{quote(symbol)}/range/{multiplier}/{timespan}/{start}/{end}",
+                {"adjusted": "true", "sort": "asc", "limit": 5000})
+    if data.get("next_url"):
+        raise ValueError(f"Massive returned an incomplete price window for {symbol}")
+    results = data.get("results") or []
+    if timespan == "minute":
+        zone = ZoneInfo("America/New_York")
+        regular = []
+        for row in results:
+            timestamp = datetime.fromtimestamp(row["t"] / 1000, timezone.utc).astimezone(zone)
+            if timestamp.weekday() < 5 and day_time(9, 30) <= timestamp.time().replace(tzinfo=None) <= day_time(16):
+                regular.append({"date": timestamp.isoformat(timespec="minutes"), "close": row["c"]})
+        if regular:
+            latest = regular[-1]["date"][:10]
+            regular = [bar for bar in regular if bar["date"][:10] == latest]
+        bars = regular
+    else:
+        bars = [{"date": _bar(row)["date"], "close": row.get("c")} for row in results]
+    return {"ticker": symbol, "period": period, "start_date": start, "end_date": end, "bars": bars}
+
+
+def massive_ticker_search(query: str) -> dict:
+    """Search active US-listed stocks and ETFs by ticker or company name."""
+    if not isinstance(query, str) or not 1 <= len(query.strip()) <= 100:
+        raise ValueError("Search must contain 1 to 100 characters")
+    data = _get("massive", f"{MASSIVE_URL}/v3/reference/tickers",
+                {"search": query.strip(), "market": "stocks", "active": "true", "limit": 20, "sort": "ticker", "order": "asc"})
+    results = data.get("results") or []
+    if not isinstance(results, list):
+        raise ValueError("Massive returned an invalid ticker search result")
+    tickers = [{"ticker": row["ticker"], "name": row.get("name"), "market": row.get("market"),
+                "type": row.get("type"), "primary_exchange": row.get("primary_exchange")}
+               for row in results if isinstance(row, dict) and isinstance(row.get("ticker"), str)
+               and row.get("market") == "stocks"]
+    return {"results": tickers}
+
+
+def massive_news_sentiment(ticker: str, start: date, end: date) -> list:
+    symbol = _symbol(ticker)
+    url = f"{MASSIVE_URL}/v2/reference/news"
+    params = {"ticker": symbol, "published_utc.gte": start.isoformat(),
+              "published_utc.lt": (end + timedelta(days=1)).isoformat(),
+              "sort": "published_utc", "order": "asc", "limit": 1000}
+    labels = {"positive": 1, "neutral": 0, "negative": -1}
+    articles = {}
+    for _ in range(10):
+        data = _get("massive", url, params)
+        for article in data.get("results") or []:
+            published = datetime.fromisoformat(article["published_utc"]).date()
+            for insight in article.get("insights") or []:
+                if insight.get("ticker") == symbol and insight.get("sentiment") in labels:
+                    articles[article["id"]] = {"published": published.isoformat(),
+                                                "score": labels[insight["sentiment"]]}
+        next_url = data.get("next_url")
+        if not next_url:
+            return [{"id": key, **articles[key]} for key in sorted(articles)]
+        parsed = urlparse(next_url)
+        if parsed.scheme != "https" or parsed.netloc not in ("api.massive.com", "api.massive.com:443") or parsed.path != "/v2/reference/news":
+            raise ValueError("Massive returned an invalid news pagination link")
+        url, params = f"{MASSIVE_URL}{parsed.path}?{parsed.query}", None
+    raise ValueError(f"News history for {symbol} exceeds the replay limit. Choose a shorter window.")
 
 
 def massive_splits(ticker: str, start_date: str, end_date: str) -> list:

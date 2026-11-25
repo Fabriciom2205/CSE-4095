@@ -22,9 +22,11 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.function_tool import FunctionTool
 from google.genai import types
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel
 from requests import RequestException
 
+import filing_sections
 import mcp_server
 import market_data
 from propose import Proposal
@@ -37,6 +39,7 @@ FIGURE_GUIDANCE = ("Attribute 13F holdings to the filing manager. Never infer tr
                    "individual decisions from quarterly holdings. Preserve disclosure dates, period dates and "
                    "accessions. A Form 4 amendment can overlap the original. ")
 MAX_MODEL_CALLS = 12
+RESEARCH_TOOL_CALL_CUTOFF = 8
 SESSION_METADATA = GetSessionConfig(num_recent_events=0)
 logger = logging.getLogger(__name__)
 _evidence = ContextVar("research_evidence", default=None)
@@ -60,6 +63,11 @@ class BudgetedGemini(Gemini):
         if usage is not None:
             if usage.calls >= MAX_MODEL_CALLS:
                 raise RuntimeError("Agent model call budget exceeded")
+            if usage.calls >= RESEARCH_TOOL_CALL_CUTOFF and llm_request.config.tools:
+                # Leave room for the specialist to report back and the coordinator to answer.
+                llm_request.config.tool_config = types.ToolConfig(
+                    function_calling_config=types.FunctionCallingConfig(mode="NONE")
+                )
             usage.calls += 1
         async with aclosing(super().generate_content_async(llm_request, stream=stream)) as responses:
             async for response in responses:
@@ -81,11 +89,31 @@ class Citation(BaseModel):
     as_of: str | None = None
 
 
+class ProposalEvidenceUnavailable(Exception):
+    """The proposal could not collect its required public evidence."""
+
+
 def filing_evidence(symbol, question):
     row = mcp_server.sec_company_research(symbol, question)["data"]
     citation = Citation(source="SEC EDGAR", symbol=symbol, accession=row["accession_number"],
                         as_of=row["filing_date"], url=row["url"])
     return citation, row["excerpts"][:4000]
+
+
+def proposal_filing_evidence(symbol):
+    try:
+        return filing_evidence(symbol, "What material opportunities and risks does the company disclose?")
+    except ToolError as error:
+        logger.warning("proposal_filing_fallback symbol=%s search_error=%s", symbol,
+                       type(error.__cause__ or error).__name__)
+    cik = sec_client.resolve_cik(symbol)
+    filing = sec_client.latest_10k(cik)
+    accession = filing["accession_number"]
+    text = filing_sections.filing_section(cik, accession, filing["filename"], "10-K", "item 1a")["text"]
+    if not text.strip():
+        raise ValueError("Latest annual filing has no risk factor excerpt")
+    citation = Citation(source="SEC EDGAR", symbol=symbol, accession=accession, as_of=filing["filing_date"])
+    return citation, f"Item 1A. Risk Factors (direct filing excerpt)\n{text[:3900]}"
 
 
 async def sec_evidence(symbol: str, question: str) -> dict:
@@ -241,6 +269,8 @@ class AdkRuntime:
             "across companies or filers or when looking up reported auditor and segment relationships. "
             "Use sec_query_filing_history for narrative across report periods and "
             "report gaps in coverage. Refresh quotes when asked for current prices. Preserve dates and citations. "
+            "Avoid repeating lookups. When tools are unavailable, answer from the evidence already gathered "
+            "and say which parts of the question you could not verify. "
             "When sec_statement_visual is available, use it for the requested statement table or chart, "
             "resolving references such as 'plot it' from conversation history. Explain missing data. "
             "Let the tool supply the visual and keep the accompanying answer concise. "
@@ -325,19 +355,29 @@ class AdkRuntime:
     async def proposal(self, session_id, tickers, constraints):
         async def read_filing(ticker):
             async with self.proposal_reads:
-                return await asyncio.to_thread(filing_evidence, ticker, "What material opportunities and risks does the company disclose?")
+                return await asyncio.to_thread(proposal_filing_evidence, ticker)
 
         async def read_quote(ticker):
             async with self.proposal_reads:
                 return await market_quote(ticker)
 
         started = monotonic()
-        async with asyncio.TaskGroup() as group:
-            filings = {ticker: group.create_task(read_filing(ticker)) for ticker in tickers}
+        try:
+            async with asyncio.TaskGroup() as group:
+                filings = {ticker: group.create_task(read_filing(ticker)) for ticker in tickers}
+        except ExceptionGroup as error:
+            logger.warning("proposal_evidence_failed source=sec errors=%s",
+                           [type(cause).__name__ for cause in error.exceptions])
+            raise ProposalEvidenceUnavailable("Proposal unavailable: SEC filing evidence could not be retrieved. Try again shortly.") from None
         filings_ready = monotonic()
         # A cold filing index may take longer to build than a quote stays fresh.
-        async with asyncio.TaskGroup() as group:
-            quotes = {ticker: group.create_task(read_quote(ticker)) for ticker in tickers}
+        try:
+            async with asyncio.TaskGroup() as group:
+                quotes = {ticker: group.create_task(read_quote(ticker)) for ticker in tickers}
+        except ExceptionGroup as error:
+            logger.warning("proposal_evidence_failed source=finnhub errors=%s",
+                           [type(cause).__name__ for cause in error.exceptions])
+            raise ProposalEvidenceUnavailable("Proposal unavailable: Finnhub quotes could not be retrieved. Try again shortly.") from None
         logger.info("proposal_evidence symbols=%d filing_ms=%d quote_ms=%d", len(tickers),
                     (filings_ready - started) * 1000, (monotonic() - filings_ready) * 1000)
         evidence = {}
@@ -355,3 +395,4 @@ class AdkRuntime:
                             or target.evidence.market_as_of != datetime.fromisoformat(record["quote"]["citation"]["as_of"])):
                         raise ValueError("Proposal cited evidence outside the supplied symbol and observations")
                 return result
+        raise RuntimeError("Proposal model returned no final answer")

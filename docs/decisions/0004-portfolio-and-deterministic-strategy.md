@@ -10,7 +10,7 @@ The backend needs broker positions for portfolio visibility, deterministic risk 
 
 ## 2. Decision
 
-Keep brokerage reads, risk calculations, and strategy replay in Python modules with explicit inputs. Map normalized Alpaca data to an isolated PostgreSQL portfolio schema when persistence is added. The portfolio client reads accounts, positions, and orders. Its paper order transport is reserved for the trusted execution runner described below. Expose portfolio state to the research agent only under the Phase 4 boundary below.
+Keep brokerage reads, risk calculations, and strategy replay in Python modules with explicit inputs. Map normalized Alpaca data to an isolated PostgreSQL portfolio schema when persistence is added. The portfolio client reads accounts, positions, and orders. Its paper order transport is reachable only through the guarded local runner and dedicated authenticated API route described below. Expose portfolio state to the research agent only under the Phase 4 boundary below.
 
 Represent strategy parameters as data. Evaluate daily signals with observations available at the close, then simulate fills at the next market open. Separate the Massive input fetch from replay so the same input snapshot and strategy produce the same result.
 
@@ -36,7 +36,7 @@ The opt-in expires when the command exits. An order already accepted by Alpaca r
 
 ### Phase 6 execution audit amendment
 
-A paper run requires a stable operator decision key, a shared PostgreSQL ledger, and risk limits and peak equity from that ledger. A deterministic client order ID and intent commit together before submission. Only reconciliation can settle an intent. Daily caps count reserved orders even when the outcome is uncertain. The broker remains authoritative for order state and fills. The API has no execution route.
+A paper run requires a stable operator decision key, a shared PostgreSQL ledger, and risk limits and peak equity from that ledger. A deterministic client order ID and intent commit together before submission. Only reconciliation can settle an intent. Daily caps count reserved orders even when the outcome is uncertain. The broker remains authoritative for order state and fills. An authenticated operator API may accept a user-confirmed symbol, side, whole-share quantity, and stable decision key. The route delegates to the same paper-only execution checks, durable intent ledger, database limits, halt switch, and reconciliation flow as the trusted runner. The browser never supplies a live endpoint or bypasses these controls. A separate authenticated agent paper-run route exposes the existing explicit `execute_paper` behavior and requires a literal paper-only confirmation, selected symbol, prompt, and stable decision key. Each request remains limited to one order and runs the same checks. This API uses the existing shared bearer token; do not expose it through a hosted browser path until an appropriate user identity and access boundary is configured.
 
 ## 3. Alternatives Considered
 

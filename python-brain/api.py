@@ -1,4 +1,4 @@
-"""Authenticated Phase 5 application API. Execution remains a local CLI."""
+"""Authenticated Monroe Fund API for research, portfolio views, and paper trading."""
 
 import asyncio
 from contextlib import aclosing, asynccontextmanager
@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from hmac import compare_digest
 import json
+import logging
 import os
 from pathlib import Path
 from time import monotonic
@@ -18,11 +19,13 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, StringConstraint
 
 import alpaca_client
 import backtest
+import market_data
+import portfolio_agent
 import portfolio_store
 import portfolio_sectors
 import sec_client
 import voice
-from adk_runtime import AdkRuntime, Citation
+from adk_runtime import AdkRuntime, Citation, ProposalEvidenceUnavailable
 from portfolio_view import PortfolioView
 from propose import SYMBOL, Target, UnitFraction, proposal_breaches
 from research_visuals import ResearchVisual, VisualKind, VisualTurn, requested_visual
@@ -36,6 +39,7 @@ PositiveAmount = Annotated[Decimal, Field(gt=0, allow_inf_nan=False)]
 Amount = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
 CACHE_SECONDS = 15
 QUOTE_SECONDS = 120
+logger = logging.getLogger(__name__)
 
 
 class Payload(BaseModel):
@@ -120,6 +124,40 @@ class Portfolio(BaseModel):
     market_freshness: Literal["unknown"] = "unknown"
 
 
+class PortfolioHistoryPoint(BaseModel):
+    timestamp: int
+    equity: Decimal
+    profit_loss: Decimal | None
+    profit_loss_pct: Decimal | None
+
+
+class PortfolioHistory(BaseModel):
+    period: str
+    base_value: Decimal | None
+    points: list[PortfolioHistoryPoint]
+
+
+class PaperOrderRequest(Payload):
+    symbol: Symbol
+    side: Literal["buy", "sell"]
+    quantity: Annotated[int, Field(strict=True, ge=1, le=1_000_000)]
+    decision_key: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+
+
+class AgentPaperRunRequest(Payload):
+    prompt: str = Field(min_length=1, max_length=voice.MAX_QUESTION_LENGTH)
+    symbol: Symbol
+    decision_key: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    confirm_paper_only: Literal[True]
+
+
+class StrategyBacktestRequest(Payload):
+    strategy: Strategy
+    start: date
+    end: date
+    initial_cash: PositiveAmount = Decimal(10000)
+
+
 class Constraints(Payload):
     max_name_weight: UnitFraction | None = None
     max_sector_weight: UnitFraction | None = None
@@ -176,6 +214,12 @@ class EquityPoint(BaseModel):
     equity: Decimal
 
 
+class BacktestBenchmark(BaseModel):
+    final_equity: Decimal
+    max_drawdown: Decimal
+    turnover: Decimal
+
+
 class BacktestResponse(BaseModel):
     source: str
     input_sha256: str
@@ -189,6 +233,8 @@ class BacktestResponse(BaseModel):
     open_positions: dict[str, int]
     fills: list[Fill]
     equity_curve: list[EquityPoint]
+    turnover: Decimal
+    benchmark: BacktestBenchmark
 
 
 def _filings(q, ticker, form):
@@ -381,6 +427,79 @@ def create_app(runtime=None) -> FastAPI:
     async def portfolio():
         return await portfolio_data()
 
+    @app.get("/portfolio/history", response_model=PortfolioHistory, dependencies=auth)
+    async def portfolio_history(period: Literal["1D", "1W", "1M", "3M", "YTD", "1Y", "ALL"] = "1D"):
+        try:
+            return await asyncio.to_thread(alpaca_client.get_portfolio_history, period)
+        except Exception:
+            raise HTTPException(502, "Portfolio history unavailable") from None
+
+    @app.get("/orders", dependencies=auth)
+    async def orders(status: Literal["open", "closed", "all"] = "all"):
+        try:
+            return await asyncio.to_thread(alpaca_client.get_orders, status, 50)
+        except Exception:
+            raise HTTPException(502, "Broker orders unavailable") from None
+
+    @app.get("/market/quote/{ticker}", dependencies=auth)
+    async def market_quote(ticker: Symbol):
+        try:
+            return await asyncio.to_thread(market_data.finnhub_quote, ticker)
+        except Exception:
+            raise HTTPException(502, "Market quote unavailable") from None
+
+    @app.get("/market/bars/{ticker}", dependencies=auth)
+    async def market_bars(ticker: Symbol, period: Literal["1D", "1W", "1M", "3M", "YTD", "1Y", "ALL"] = "1D"):
+        try:
+            return await asyncio.to_thread(market_data.massive_price_history, ticker, period)
+        except Exception:
+            raise HTTPException(502, "Market price history unavailable") from None
+
+    @app.get("/market/search", dependencies=auth)
+    async def market_search(q: Annotated[str, Query(min_length=1, max_length=100)]):
+        try:
+            return await asyncio.to_thread(market_data.massive_ticker_search, q)
+        except Exception:
+            raise HTTPException(502, "Stock and ETF search unavailable") from None
+
+    @app.get("/market/details/{ticker}", dependencies=auth)
+    async def market_details(ticker: Symbol):
+        try:
+            return await asyncio.to_thread(market_data.massive_ticker_details, ticker)
+        except Exception:
+            raise HTTPException(502, "Company details unavailable") from None
+
+    @app.post("/orders/paper", dependencies=auth)
+    async def paper_order(data: PaperOrderRequest):
+        try:
+            return await asyncio.to_thread(portfolio_agent.submit_paper_order, data.symbol, data.side,
+                                           data.quantity, data.decision_key)
+        except ValueError as error:
+            message = str(error)
+            status = 503 if any(word in message.lower() for word in ("required", "unavailable", "configure")) else 409
+            raise HTTPException(status, message) from None
+
+    @app.post("/agent/paper-run", dependencies=auth)
+    async def agent_paper_run(data: AgentPaperRunRequest):
+        try:
+            return await asyncio.to_thread(portfolio_agent.run, data.prompt, execute_paper=True,
+                                           symbol=data.symbol, decision_key=data.decision_key)
+        except ValueError as error:
+            message = str(error)
+            status = 503 if any(word in message.lower() for word in ("required", "unavailable", "configure")) else 409
+            raise HTTPException(status, message) from None
+
+    @app.post("/strategy/backtest", response_model=BacktestResponse, dependencies=auth)
+    async def strategy_backtest(data: StrategyBacktestRequest):
+        try:
+            snapshot = await asyncio.to_thread(backtest.capture_massive, data.strategy,
+                                               data.start.isoformat(), data.end.isoformat())
+            return await asyncio.to_thread(backtest.replay, data.strategy, snapshot, data.initial_cash)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from None
+        except Exception:
+            raise HTTPException(502, "Strategy replay unavailable") from None
+
     @app.post("/proposals", response_model=Proposals, dependencies=auth)
     async def proposals(data: ProposalRequest):
         limits = RiskLimits(**data.constraints.model_dump())
@@ -420,8 +539,11 @@ def create_app(runtime=None) -> FastAPI:
         sectors = await stored_sectors(snapshot) if limits.max_sector_weight is not None else None
         try:
             proposal = await service.proposal(session_id, data.tickers, data.constraints.model_dump(mode="json"))
-        except Exception:
-            raise HTTPException(502, "Validated proposal unavailable") from None
+        except ProposalEvidenceUnavailable as error:
+            raise HTTPException(502, str(error)) from None
+        except Exception as error:
+            logger.warning("proposal_generation_failed error=%s", type(error).__name__)
+            raise HTTPException(502, "Phil could not produce a proposal that passed validation. Try again shortly.") from None
         state = await portfolio_data()
         if state.exposure is None:
             raise HTTPException(422, "A position is missing a market value")

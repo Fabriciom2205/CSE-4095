@@ -1,9 +1,11 @@
-"""Data and signal rules for a long-only daily moving-average strategy."""
+"""Parameters for long-only strategies and the daily moving-average signal."""
 
 from dataclasses import dataclass
 from decimal import Decimal
 import re
-from typing import Sequence
+from typing import Literal, Sequence
+
+StrategyKind = Literal["moving_average", "momentum", "quality_value", "sentiment"]
 
 
 @dataclass(frozen=True)
@@ -12,6 +14,8 @@ class Strategy:
     lookback_sessions: int = 20
     allocation_fraction: Decimal = Decimal("0.25")
     stop_loss_fraction: Decimal = Decimal("0.10")
+    kind: StrategyKind = "moving_average"
+    top_n: int = 1
 
     def __post_init__(self):
         if (not isinstance(self.symbols, tuple) or not 1 <= len(self.symbols) <= 10
@@ -21,6 +25,12 @@ class Strategy:
             raise ValueError("Universe must contain 1 to 10 unique uppercase stock symbols")
         if type(self.lookback_sessions) is not int or not 2 <= self.lookback_sessions <= 200:
             raise ValueError("Lookback must be between 2 and 200 sessions")
+        if self.kind not in ("moving_average", "momentum", "quality_value", "sentiment"):
+            raise ValueError("Unknown strategy type")
+        if type(self.top_n) is not int or not 1 <= self.top_n <= 10:
+            raise ValueError("Number of selections must be between 1 and 10")
+        if self.kind != "moving_average" and self.top_n > len(self.symbols):
+            raise ValueError("Number of selections cannot exceed the number of symbols")
         for label, value in (("Allocation", self.allocation_fraction), ("Stop loss", self.stop_loss_fraction)):
             if not isinstance(value, Decimal) or not value.is_finite() or not 0 < value <= 1:
                 raise ValueError(f"{label} must be a Decimal fraction greater than 0 and at most 1")

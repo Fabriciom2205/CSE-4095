@@ -38,6 +38,24 @@ def _result(row, *, duplicate=False):
             "side": row["side"], "quantity": row["quantity"], "limit_price": str(row["limit_price"])}
 
 
+def _reserve_and_submit(ledger, account_id, key, request_digest, order, proposal, audit, daily_count, daily_notional):
+    _ensure_running()
+    row, created = ledger.reserve(account_id, key, request_digest, order, proposal,
+                                  audit, daily_count, daily_notional)
+    if not created:
+        return _result(row, duplicate=True)
+    _ensure_running()
+    try:
+        receipt = broker._submit_paper_limit(order["symbol"], order["side"], order["quantity"],
+                                             order["limit_price"], row["client_order_id"])
+    except broker.AlpacaError:
+        ledger.submission(row)
+        return _result({**row, "state": "unknown"})
+    ledger.submission(row, receipt)
+    return _result({**row, "state": "submitted", "broker_order_id": receipt["id"],
+                    "broker_status": receipt["status"]})
+
+
 def run(prompt: str, *, limits: RiskLimits | None = None, peak_equity: Decimal | None = None,
         execute_paper: bool = False, symbol: str | None = None, decision_key: str | None = None) -> dict:
     """Execution authorization, decision identity, and limits are outside model input."""
@@ -74,6 +92,76 @@ def run(prompt: str, *, limits: RiskLimits | None = None, peak_equity: Decimal |
                 raise ValueError("Proposal is outside the user-selected paper execution scope")
             order = _execute(proposal, ledger, account_id, account["external_account_id"], decision_key, request_digest)
     return {"mode": "paper-execution", "order": order}
+
+
+def submit_paper_order(symbol: str, side: str, quantity: int, decision_key: str) -> dict:
+    """Submit one user-confirmed, whole-share limit order using the audited paper controls."""
+    _ensure_running()
+    if not isinstance(symbol, str) or not re.fullmatch(SYMBOL, symbol):
+        raise ValueError("A valid uppercase symbol is required")
+    if side not in ("buy", "sell") or type(quantity) is not int or not 1 <= quantity <= 1_000_000:
+        raise ValueError("Order must have a buy or sell side and 1 to 1,000,000 whole shares")
+    if not isinstance(decision_key, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", decision_key):
+        raise ValueError("A stable paper order key is required")
+    request_digest = digest({"symbol": symbol, "side": side, "quantity": quantity})
+    with connect() as ledger:
+        if row := ledger.existing(decision_key, request_digest):
+            return {"mode": "paper-execution", "order": _result(row, duplicate=True)}
+        account = _paper_account()
+        account_id = ledger.account(account)
+        with ledger.lock(account_id):
+            if row := ledger.existing(decision_key, request_digest):
+                return {"mode": "paper-execution", "order": _result(row, duplicate=True)}
+            limits, peak_equity, daily_count, daily_notional = ledger.controls(account_id)
+            ledger.record_equity(account_id, account["equity"])
+            external_id = account["external_account_id"]
+            asset = broker._get(broker.PAPER_URL, f"/v2/assets/{symbol}")
+            if not isinstance(asset, dict) or asset.get("class") != "us_equity" or asset.get("tradable") is not True:
+                raise ValueError("Paper orders require a tradable US stock or ETF")
+            if broker.get_orders(status="open", limit=1):
+                raise ValueError("An Alpaca paper order is already open")
+            account = _paper_account()
+            if account["external_account_id"] != external_id:
+                raise ValueError("Alpaca account changed during execution")
+            equity, cash = account["equity"], account["cash"]
+            positions = broker.get_positions()
+            if any(position["market_value"] is None or position["quantity"] < 0 for position in positions):
+                raise ValueError("Paper execution requires priced long-only holdings")
+            with localcontext(Context(prec=64)):
+                price, quote_as_of = _reference_price(symbol)
+                held = sum((position["quantity"] for position in positions if position["symbol"] == symbol), Decimal(0))
+                if side == "sell" and quantity > held:
+                    raise ValueError("Sell quantity exceeds the shares held; short selling is disabled")
+                notional = Decimal(quantity) * price
+                if side == "buy" and (cash is None or cash < notional):
+                    raise ValueError("Paper order exceeds available cash")
+                projected = [Position(position["symbol"], None, position["market_value"])
+                             for position in positions if position["symbol"] != symbol]
+                final_quantity = held + Decimal(quantity if side == "buy" else -quantity)
+                if final_quantity:
+                    projected.append(Position(symbol, None, final_quantity * price))
+                if limits.max_sector_weight is not None:
+                    sectors = portfolio_sectors.classifications(position.symbol for position in projected
+                                                                  if position.market_value)
+                    projected = classified_positions(projected, sectors)
+                breaches = check_limits(projected, equity, max(equity, peak_equity), limits,
+                                        order_notional=notional)
+            if breaches:
+                raise ValueError("Paper order breaches " + ", ".join(sorted({breach.limit for breach in breaches})))
+            clock = broker._get(broker.PAPER_URL, "/v2/clock")
+            if not isinstance(clock, dict) or clock.get("is_open") is not True:
+                raise ValueError("Paper execution requires regular market hours")
+            order = {"symbol": symbol, "side": side, "quantity": quantity, "limit_price": price}
+            proposal = {"mode": "user-confirmed-paper-order", "symbol": symbol,
+                        "side": side, "quantity": quantity, "quote_as_of": quote_as_of.isoformat()}
+            audit = {"equity": equity, "cash": cash, "peak_equity": max(equity, peak_equity),
+                     "limits": asdict(limits), "positions": positions,
+                     "projected": [asdict(position) for position in projected],
+                     "quote_as_of": quote_as_of.isoformat(), "quote_source": "Finnhub",
+                     "daily_order_cap": daily_count, "daily_notional_cap": daily_notional}
+            result = _reserve_and_submit(ledger, account_id, decision_key, request_digest,
+                                         order, proposal, audit, daily_count, daily_notional)
+            return {"mode": "paper-execution", "order": result}
 
 
 def record_equity():
@@ -170,20 +258,8 @@ def _execute(proposal: Proposal, ledger, account_id, external_id, key, request_d
              "limits": asdict(limits), "positions": positions, "projected": [asdict(p) for p in projected],
              "quote_as_of": quote_as_of.isoformat(), "quote_source": "Finnhub",
              "daily_order_cap": daily_count, "daily_notional_cap": daily_notional}
-    _ensure_running()
-    row, created = ledger.reserve(account_id, key, request_digest, order, proposal.model_dump(mode="json"),
-                                  audit, daily_count, daily_notional)
-    if not created:
-        return _result(row, duplicate=True)
-    _ensure_running()
-    try:
-        receipt = broker._submit_paper_limit(symbol, side, quantity, price, row["client_order_id"])
-    except broker.AlpacaError:
-        ledger.submission(row)
-        return _result({**row, "state": "unknown"})
-    ledger.submission(row, receipt)
-    return _result({**row, "state": "submitted", "broker_order_id": receipt["id"],
-                    "broker_status": receipt["status"]})
+    return _reserve_and_submit(ledger, account_id, key, request_digest, order,
+                               proposal.model_dump(mode="json"), audit, daily_count, daily_notional)
 
 
 def main():

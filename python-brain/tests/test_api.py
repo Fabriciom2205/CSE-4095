@@ -61,7 +61,9 @@ class ApiTests(unittest.TestCase):
     def test_openapi_lists_every_route_with_auth_and_sse(self):
         spec = self.client.get("/openapi.json").json()
         self.assertEqual(set(spec["paths"]), {"/health", "/filings", "/research", "/research/transcribe",
-                                             "/portfolio", "/proposals", "/backtest"})
+                                             "/portfolio", "/portfolio/history", "/orders", "/market/quote/{ticker}", "/market/bars/{ticker}",
+                                             "/market/search", "/market/details/{ticker}", "/orders/paper", "/agent/paper-run", "/strategy/backtest",
+                                             "/proposals", "/backtest"})
         for route, operations in spec["paths"].items():
             if route != "/health":
                 self.assertEqual(next(iter(operations.values()))["security"], [{"HTTPBearer": []}])

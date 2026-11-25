@@ -4,7 +4,7 @@ Financial values and quantities use Decimal. Keep brokerage responses inside the
 portfolio backend because they contain private account and position data.
 """
 
-from datetime import datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 import os
 
@@ -153,6 +153,55 @@ def get_positions() -> list[dict]:
             "unrealized_pl": _decimal(row, "unrealized_pl", nullable=True),
         })
     return positions
+
+
+def get_portfolio_history(period: str) -> dict:
+    """Get a bounded time series from Alpaca for the account currently configured."""
+    today = datetime.now(timezone.utc).date()
+    if period == "1D":
+        params = {"period": "1D", "timeframe": "5Min"}
+    elif period == "1W":
+        params = {"period": "1W", "timeframe": "1H"}
+    elif period == "1M":
+        params = {"period": "1M", "timeframe": "1D"}
+    elif period == "3M":
+        params = {"period": "3M", "timeframe": "1D"}
+    elif period == "YTD":
+        params = {"start": date(today.year, 1, 1).isoformat(), "timeframe": "1D"}
+    elif period == "1Y":
+        params = {"period": "1A", "timeframe": "1D"}
+    elif period == "ALL":
+        params = {"start": "2000-01-01", "timeframe": "1D"}
+    else:
+        raise ValueError("Unsupported portfolio history period")
+
+    data = _get(_base_url(), "/v2/account/portfolio/history", params=params)
+    if not isinstance(data, dict):
+        raise AlpacaError("Alpaca returned invalid portfolio history")
+    timestamps, equities = data.get("timestamp"), data.get("equity")
+    profits, percentages = data.get("profit_loss"), data.get("profit_loss_pct")
+    if (not isinstance(timestamps, list) or not isinstance(equities, list)
+            or len(timestamps) != len(equities) or len(timestamps) > 30000
+            or (profits is not None and (not isinstance(profits, list) or len(profits) != len(timestamps)))
+            or (percentages is not None and (not isinstance(percentages, list) or len(percentages) != len(timestamps)))):
+        raise AlpacaError("Alpaca returned invalid portfolio history")
+    base = _decimal(data, "base_value", nullable=True)
+    points = []
+    for index, (timestamp, equity) in enumerate(zip(timestamps, equities)):
+        if type(timestamp) is not int or timestamp < 0:
+            raise AlpacaError("Alpaca returned invalid portfolio history timestamps")
+        value = _decimal({"equity": equity}, "equity", nullable=True)
+        if value is None:
+            continue
+        profit = _decimal({"profit": profits[index]}, "profit", nullable=True) if profits else None
+        percent = _decimal({"percent": percentages[index]}, "percent", nullable=True) if percentages else None
+        if profit is None and base is not None:
+            profit = value - base
+        if percent is None and base:
+            percent = value / base - 1
+        points.append({"timestamp": timestamp, "equity": value, "profit_loss": profit,
+                       "profit_loss_pct": percent})
+    return {"period": period, "base_value": base, "points": points}
 
 
 def get_orders(status: str = "all", limit: int = 50) -> list[dict]:
